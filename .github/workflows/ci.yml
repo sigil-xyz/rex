@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --dev
+      - run: uv run ruff check --output-format=github .
+      - run: uv run ruff format --check .
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --dev
+      - name: Run mypy
+        run: |
+          # Skip if no Python source files exist yet
+          if find src -name "*.py" | grep -q .; then
+            uv run mypy src/
+          else
+            echo "No Python source files yet — skipping mypy"
+          fi
+
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --dev
+      - name: Run tests
+        run: |
+          # Skip coverage enforcement until tests exist
+          if find tests -name "test_*.py" | grep -q .; then
+            uv run pytest
+          else
+            echo "No tests yet — skipping pytest"
+          fi
+
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.22.0
+        with:
+          config: ./_typos.toml
+
+  required:
+    name: Required Checks
+    needs: [lint, typecheck, test, typos]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: All checks passed
+        run: |
+          results=("${{ needs.lint.result }}" "${{ needs.typecheck.result }}" "${{ needs.test.result }}" "${{ needs.typos.result }}")
+          for result in "${results[@]}"; do
+            if [[ "$result" != "success" ]]; then
+              echo "A required check failed: $result"
+              exit 1
+            fi
+          done

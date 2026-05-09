@@ -1,0 +1,9 @@
+# All files — maintainer review required on every PR
+* @sigil-xyz
+
+# CI changes require extra scrutiny
+.github/workflows/ @sigil-xyz
+
+# Security-sensitive files
+SECURITY.md @sigil-xyz
+src/rex/daemon/ @sigil-xyz

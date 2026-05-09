@@ -1,0 +1,17 @@
+[default]
+extend-ignore-re = [
+    # Ignore hex strings
+    "[0-9a-fA-F]{8,}",
+]
+
+[default.extend-words]
+# Add project-specific words that typos flags incorrectly
+# e.g. "whisper" model names, config keys
+
+[files]
+extend-exclude = [
+    "*.onnx",
+    "*.bin",
+    "uv.lock",
+    "changelogs/",
+]

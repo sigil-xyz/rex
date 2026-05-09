@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rex"
+version = "0.0.1"
+description = "A local AI assistant daemon for Linux"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+keywords = ["ai", "assistant", "voice", "linux", "hyprland", "daemon"]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "faster-whisper>=1.0",
+    "sounddevice>=0.4",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+rex         = "rex.daemon.main:run"
+rex-trigger = "rex.cli.trigger:main"
+
+[project.urls]
+Homepage  = "https://github.com/sigil-xyz/rex"
+Repository = "https://github.com/sigil-xyz/rex"
+Issues    = "https://github.com/sigil-xyz/rex/issues"
+Changelog = "https://github.com/sigil-xyz/rex/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rex"]
+
+[tool.pytest.ini_options]
+testpaths    = ["tests"]
+asyncio_mode = "auto"
+addopts      = "--cov=src/rex --cov-report=term-missing --cov-fail-under=80"
+
+[tool.mypy]
+python_version        = "3.11"
+strict                = true
+warn_return_any       = true
+warn_unused_ignores   = true
+disallow_untyped_defs = true

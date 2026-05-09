@@ -1,0 +1,26 @@
+[Unit]
+Description=Rex — local AI assistant daemon
+Documentation=https://github.com/sigil-xyz/rex
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/rex
+Restart=on-failure
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rex
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%t
+PrivateTmp=true
+
+[Install]
+WantedBy=graphical-session.target
