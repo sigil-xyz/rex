@@ -27,7 +27,7 @@ class AudioConfig:
 
 @dataclass
 class TtsConfig:
-    piper_bin: str = "/usr/bin/piper"
+    piper_bin: str = "/usr/bin/piper-tts"
     model: str = "/usr/share/piper/voices/en_US-lessac-medium.onnx"
     device: str = ""
 
