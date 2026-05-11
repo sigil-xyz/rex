@@ -19,6 +19,10 @@ v0.0.1 — project scaffolding complete, no code written yet. Core loop being im
 - uv (package manager)
 - ruff + mypy + pytest (toolchain)
 
+## Rules
+
+- No mention of AI tools in commit messages, code comments, docstrings, or PR descriptions
+
 ## Key Constraints
 
 - Daemon idle RAM target: <30MB (Whisper model loaded separately, ~150MB)
