@@ -145,4 +145,6 @@ def run() -> None:
         format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    for noisy in ("httpcore", "httpx", "hpack", "urllib3"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     asyncio.run(_main())
