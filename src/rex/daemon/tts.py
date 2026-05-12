@@ -40,4 +40,6 @@ async def speak(text: str, config: TtsConfig) -> None:
     _, aplay_err = await aplay.communicate(raw_audio)
 
     if aplay.returncode != 0:
-        logger.warning("aplay exited non-zero: %d — %s", aplay.returncode, aplay_err.decode().strip())
+        logger.warning(
+            "aplay exited non-zero: %d — %s", aplay.returncode, aplay_err.decode().strip()
+        )

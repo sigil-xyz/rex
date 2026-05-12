@@ -139,7 +139,10 @@ async def _main() -> None:
     # Prevent PipeWire from suspending the audio sink — avoids Bluetooth A2DP
     # re-connection delay that clips the start of TTS responses
     proc = await asyncio.create_subprocess_exec(
-        "pactl", "suspend-sink", "@DEFAULT_SINK@", "0",
+        "pactl",
+        "suspend-sink",
+        "@DEFAULT_SINK@",
+        "0",
         stderr=asyncio.subprocess.DEVNULL,
     )
     await proc.communicate()
