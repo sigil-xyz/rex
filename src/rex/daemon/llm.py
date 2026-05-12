@@ -1,24 +1,30 @@
 import logging
-from collections.abc import Callable
-from datetime import datetime
+
+from openai import OpenAI
+
+from rex.config import LlmConfig
 
 logger = logging.getLogger(__name__)
 
-_responses: dict[str, Callable[[], str]] = {
-    "time": lambda: f"It's {datetime.now().strftime('%I:%M %p')}.",
-    "day": lambda: f"Today is {datetime.now().strftime('%A, %B %d')}.",
-    "hello": lambda: "Hello. How can I help?",
-    "help": lambda: "I can tell you the time, date, or just say hello.",
-}
-_FALLBACK = "I didn't catch that. For now try asking for the time or date."
+_client: OpenAI | None = None
 
 
-def respond(text: str) -> str:
-    text_lower = text.lower()
-
-    for keyword, responsder in _responses.items():
-        if keyword in text_lower:
-            logger.debug("match found: %s", keyword)
-            return responsder()
-    logger.warning("no keyword matched in %r", text)
-    return _FALLBACK
+def respond(text: str, config: LlmConfig) -> str:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=config.api_key or None, base_url=config.base_url)
+    try:
+        response = _client.chat.completions.create(
+            model=config.model,
+            max_tokens=config.max_tokens,
+            messages=[
+                {"role": "system", "content": config.system_prompt},
+                {"role": "user", "content": text},
+            ],
+        )
+        result = response.choices[0].message.content or ""
+        logger.debug("llm response: %s", result[:80])
+        return result
+    except Exception as e:
+        logger.error("llm request failed: %s", e)
+        return "Sorry, I couldn't process that."
