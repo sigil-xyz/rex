@@ -20,7 +20,7 @@ class Transcriber:
     def transcribe(self, audio: np.ndarray) -> str:
         if self._model is None:
             raise RuntimeError("transcribe called before load(); call load() first")
-        segments, _info = self._model.transcribe(audio)
+        segments, _info = self._model.transcribe(audio, vad_filter=False, no_speech_threshold=1.0)
         text = " ".join(segment.text for segment in segments).strip()
         logger.debug("transcribed %s", text)
         return text

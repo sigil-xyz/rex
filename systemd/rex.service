@@ -15,12 +15,14 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=rex
 
+# Pass through user session environment for PipeWire/audio access
+PassEnvironment=XDG_RUNTIME_DIR PIPEWIRE_RUNTIME_DIR PULSE_RUNTIME_PATH DBUS_SESSION_BUS_ADDRESS
+
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%t
-PrivateTmp=true
+ReadWritePaths=%t %h/.cache/huggingface
 
 [Install]
 WantedBy=graphical-session.target
