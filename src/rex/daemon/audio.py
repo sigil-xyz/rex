@@ -53,7 +53,7 @@ class AudioRecorder:
             self._stream = None
         if not self._buffer:
             return np.zeros(0, dtype=np.float32)
-        audio = np.concatenate(self._buffer, axis=0)
+        audio = np.concatenate(self._buffer, axis=0).flatten()
         logger.info(
             "recording stopped (%d samples, %.2fs)",
             len(audio),
