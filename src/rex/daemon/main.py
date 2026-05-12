@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import platform
 import signal
 from pathlib import Path
 
@@ -23,14 +24,26 @@ async def _notify(text: str, config: NotificationConfig) -> None:
     if not config.enabled:
         return
 
-    await asyncio.create_subprocess_exec(
-        "notify-send",
-        "--expire-time",
-        str(config.timeout),
-        "rex",
-        text,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
+    if platform.system() == "Darwin":
+        # macOS: osascript is always available, no extra deps
+        script = f'display notification "{text}" with title "Rex"'
+        proc = await asyncio.create_subprocess_exec(
+            "osascript",
+            "-e",
+            script,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+    else:
+        proc = await asyncio.create_subprocess_exec(
+            "notify-send",
+            "--expire-time",
+            str(config.timeout),
+            "rex",
+            text,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+
+    await proc.communicate()
 
 
 class RexDaemon:
@@ -148,15 +161,16 @@ async def _main() -> None:
     loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(daemon.shutdown()))
 
     # Prevent PipeWire from suspending the audio sink — avoids Bluetooth A2DP
-    # re-connection delay that clips the start of TTS responses
-    proc = await asyncio.create_subprocess_exec(
-        "pactl",
-        "suspend-sink",
-        "@DEFAULT_SINK@",
-        "0",
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc.communicate()
+    # re-connection delay that clips the start of TTS responses (Linux/PipeWire only)
+    if platform.system() == "Linux":
+        proc = await asyncio.create_subprocess_exec(
+            "pactl",
+            "suspend-sink",
+            "@DEFAULT_SINK@",
+            "0",
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
 
     await daemon.serve(socket_path)
 

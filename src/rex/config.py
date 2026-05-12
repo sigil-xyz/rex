@@ -27,8 +27,9 @@ class LlmConfig:
 
 @dataclass
 class SttConfig:
-    model: str = "tiny.en"
-    device: str = "cpu"
+    backend: str = "auto"  # "auto" | "parakeet" | "mlx" | "faster-whisper"
+    model: str = ""  # empty = backend picks its own default
+    device: str = "cpu"  # used by faster-whisper only
 
 
 @dataclass
@@ -47,7 +48,7 @@ class AudioConfig:
 
 @dataclass
 class TtsConfig:
-    piper_bin: str = "/usr/bin/piper-tts"
+    piper_bin: str = "piper-tts"  # resolved via PATH; override if not in PATH
     model: str = "/usr/share/piper/voices/en_US-lessac-medium.onnx"
     device: str = ""
 
@@ -104,6 +105,7 @@ def load_config(path: Path | None = None) -> RexConfig:
 
     stt_data = data.get("stt", {})
     stt = SttConfig(
+        backend=stt_data.get("backend", SttConfig.backend),
         model=stt_data.get("model", SttConfig.model),
         device=stt_data.get("device", SttConfig.device),
     )
