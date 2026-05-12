@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -32,35 +31,37 @@ async def test_socket_connection_sends_command() -> None:
 
 
 def test_main_invalid_command(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("sys.argv", ["rex-trigger", "invalid"]):
-        with pytest.raises(SystemExit) as exc:
-            main()
+    with patch("sys.argv", ["rex-trigger", "invalid"]), pytest.raises(SystemExit) as exc:
+        main()
     assert exc.value.code == 1
     assert "usage" in capsys.readouterr().err
 
 
-def test_main_missing_command(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("sys.argv", ["rex-trigger"]):
-        with pytest.raises(SystemExit) as exc:
-            main()
+def test_main_missing_command() -> None:
+    with patch("sys.argv", ["rex-trigger"]), pytest.raises(SystemExit) as exc:
+        main()
     assert exc.value.code == 1
 
 
 def test_main_file_not_found(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("sys.argv", ["rex-trigger", "start"]):
-        with patch("rex.cli.trigger.socket_connection", side_effect=FileNotFoundError):
-            with patch("rex.cli.trigger.asyncio.run", side_effect=FileNotFoundError):
-                with pytest.raises(SystemExit) as exc:
-                    main()
+    with (
+        patch("sys.argv", ["rex-trigger", "start"]),
+        patch("rex.cli.trigger.socket_connection", side_effect=FileNotFoundError),
+        patch("rex.cli.trigger.asyncio.run", side_effect=FileNotFoundError),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
     assert exc.value.code == 1
     assert "not running" in capsys.readouterr().err
 
 
 def test_main_connection_refused(capsys: pytest.CaptureFixture[str]) -> None:
-    with patch("sys.argv", ["rex-trigger", "stop"]):
-        with patch("rex.cli.trigger.socket_connection", side_effect=ConnectionRefusedError):
-            with patch("rex.cli.trigger.asyncio.run", side_effect=ConnectionRefusedError):
-                with pytest.raises(SystemExit) as exc:
-                    main()
+    with (
+        patch("sys.argv", ["rex-trigger", "stop"]),
+        patch("rex.cli.trigger.socket_connection", side_effect=ConnectionRefusedError),
+        patch("rex.cli.trigger.asyncio.run", side_effect=ConnectionRefusedError),
+        pytest.raises(SystemExit) as exc,
+    ):
+        main()
     assert exc.value.code == 1
     assert "refused" in capsys.readouterr().err

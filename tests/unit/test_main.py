@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,10 +83,12 @@ async def test_on_stop_runs_pipeline() -> None:
 
     await daemon._on_start()
 
-    with patch("rex.daemon.main.llm.respond", return_value="Hello. How can I help?"):
-        with patch("rex.daemon.main.tts.speak", new_callable=AsyncMock):
-            with patch("rex.daemon.main._notify", new_callable=AsyncMock):
-                await daemon._on_stop()
+    with (
+        patch("rex.daemon.main.llm.respond", return_value="Hello. How can I help?"),
+        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock),
+        patch("rex.daemon.main._notify", new_callable=AsyncMock),
+    ):
+        await daemon._on_stop()
 
     assert daemon._recording is False
 

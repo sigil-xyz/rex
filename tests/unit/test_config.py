@@ -1,7 +1,4 @@
-import tomllib
 from pathlib import Path
-
-import pytest
 
 from rex.config import (
     AudioConfig,

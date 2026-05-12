@@ -1,7 +1,6 @@
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from rex.config import AudioConfig
 from rex.daemon.audio import AudioRecorder

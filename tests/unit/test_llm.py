@@ -1,4 +1,3 @@
-import pytest
 
 from rex.daemon.llm import respond
 
