@@ -1,38 +1,54 @@
-# Rex Configuration
-# Copy this file to ~/.config/rex/config.toml and edit as needed.
+# Rex configuration
+# Copy to ~/.config/rex/config.toml and edit as needed.
+# Full reference: https://github.com/sigil-xyz/rex/blob/main/docs/configuration.md
 
 [daemon]
-# Path to the unix socket
-socket_path = ""  # default: $XDG_RUNTIME_DIR/rex.sock
 # Logging level: debug, info, warning, error
 log_level = "info"
 
 [audio]
-# Input device name or index. Leave empty for system default.
-# List devices: python -c "import sounddevice; print(sounddevice.query_devices())"
-device = ""
-# Sample rate in Hz (Whisper expects 16000)
+# Input device name or index — leave empty for system default
+# List devices: python3 -c "import sounddevice; print(sounddevice.query_devices())"
+device      = ""
 sample_rate = 16000
-# Minimum recording duration in seconds — prevents accidental triggers
-min_duration = 0.5
 
 [stt]
-# Whisper model: tiny.en, base.en, small.en
-# Larger = more accurate, more RAM, slower
-model = "tiny.en"
-# Device: cpu or cuda
+# Backend selection:
+#   "auto"           — detect best backend at startup (recommended)
+#   "parakeet"       — NVIDIA Parakeet TDT 0.6B v2 (requires CUDA + ≥6 GB VRAM + nemo-toolkit)
+#   "mlx"            — mlx-whisper large-v3 (Apple Silicon only, requires mlx-whisper)
+#   "faster-whisper" — fallback, works everywhere
+backend = "auto"
+
+# Model override — leave empty to use the backend default:
+#   parakeet      → nvidia/parakeet-tdt-0.6b-v2
+#   mlx           → mlx-community/whisper-large-v3-mlx
+#   faster-whisper → large-v3
+model = ""
+
+# Device for faster-whisper only ("cpu", "cuda", or "auto")
 device = "cpu"
 
 [tts]
-# Path to piper binary
-piper_bin = "/usr/bin/piper"
-# Path to piper voice model (.onnx file)
+# Path to piper-tts binary — resolved via PATH by default
+# macOS (pip install): piper-tts
+# Linux (AUR): piper-tts  or  /usr/bin/piper-tts
+piper_bin = "piper-tts"
+
+# Path to the Piper voice model (.onnx file)
+# Download voices: https://huggingface.co/rhasspy/piper-voices
 model = "/usr/share/piper/voices/en_US-lessac-medium.onnx"
-# Output audio device. Leave empty for system default.
-device = ""
+
+[llm]
+# OpenAI-compatible API key
+api_key  = ""
+# Base URL for the LLM endpoint
+base_url = "https://api.aicredits.in/v1"
+# Model identifier passed to the API
+model    = "anthropic/claude-haiku-4-5"
 
 [notification]
 # Show desktop notification with response text
 enabled = true
-# Notification timeout in milliseconds
+# Notification display duration in milliseconds
 timeout = 5000

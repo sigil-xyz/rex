@@ -1,59 +1,53 @@
 # Hacking on Rex
 
-This guide is for contributors who want to build, modify, or debug Rex. Read [CONTRIBUTING.md](CONTRIBUTING.md) first for the contribution workflow. This document covers the technical internals.
+This guide is for contributors who want to build, modify, or debug Rex. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+first for the contribution workflow. This document covers the technical internals.
 
 ---
 
 ## Prerequisites
 
-Before building Rex from source, ensure the following are installed.
-
 **All platforms**
 
 - Python 3.11 or newer
 - [uv](https://docs.astral.sh/uv/) — package and environment manager
-- [Piper TTS](https://github.com/rhasspy/piper) — voice synthesis binary
+- [Piper TTS](https://github.com/rhasspy/piper) — voice synthesis binary (`uv tool install piper-tts`)
 - A Piper voice model (`.onnx` file) — see [Installation](docs/installation.md)
 
 **Linux**
 
-```
-portaudio libsndfile
-```
-
-On Arch Linux:
-
-```
-sudo pacman -S portaudio libsndfile
+```bash
+sudo pacman -S portaudio libsndfile   # Arch
+sudo apt install portaudio19-dev libsndfile1   # Debian / Ubuntu
 ```
 
 **macOS**
 
-```
+```bash
 brew install portaudio
 ```
 
 ---
 
-## Building from Source
-
-Clone the repository and install all dependencies including development extras:
+## Building from source
 
 ```bash
 git clone https://github.com/sigil-xyz/rex
 cd rex
 uv sync --dev
+pre-commit install
 ```
 
-Install pre-commit hooks (required before your first commit):
+To include an optional STT backend:
 
 ```bash
-pre-commit install
+uv sync --dev --extra mlx        # Apple Silicon
+uv sync --dev --extra parakeet   # NVIDIA ≥6 GB VRAM
 ```
 
 ---
 
-## Common Commands
+## Common commands
 
 | Command | Description |
 |---------|-------------|
@@ -66,20 +60,21 @@ pre-commit install
 | `just test` | Run test suite |
 | `just cov` | Run tests with HTML coverage report |
 | `just typos` | Check for typos |
-| `just logs` | Tail live daemon logs via journalctl |
-| `just service-install` | Install and start systemd user service |
-| `just service-remove` | Stop and remove systemd user service |
+| `just logs` | Tail live daemon logs via journalctl (Linux) |
+| `just service-install` | Install and start systemd user service (Linux) |
+| `just service-remove` | Stop and remove systemd user service (Linux) |
 
 ---
 
 ## Architecture
 
-Rex is a single asyncio process. It listens on a Unix socket and runs a linear pipeline on each request. No threads. No shared state between requests.
+Rex is a single asyncio process. It listens on a Unix socket and runs a linear pipeline on each
+request. No threads. No shared state between requests.
 
 ```
 rex-trigger (CLI)
       │
-      │  unix socket  ($XDG_RUNTIME_DIR/rex.sock)
+      │  unix socket  ($XDG_RUNTIME_DIR/rex.sock  or  /tmp/rex.sock)
       ▼
 rex daemon  (asyncio, always running)
       │
@@ -88,29 +83,34 @@ rex daemon  (asyncio, always running)
       └── STOP signal
               │
               ▼
-         STT: faster-whisper
-         (model preloaded at daemon startup)
+         STT backend  (Parakeet / mlx-whisper / faster-whisper)
+         selected at startup based on hardware
               │
               ▼
-         Response engine
-         (llm.py — keyword dict in v0.0.1, Claude API in v0.1+)
+         LLM response engine  (llm.py)
               │
          ┌────┴────┐
          ▼         ▼
-      Piper TTS  notify-send
-      (subprocess) (subprocess)
+      Piper TTS  notification
+    (subprocess)  notify-send (Linux)
+    sounddevice   osascript   (macOS)
 ```
 
 **Design constraints that must be preserved:**
 
-- The daemon is the only long-running process. `rex-trigger` is a thin one-shot client that exits after writing to the socket.
-- Piper runs as a subprocess, not via Python bindings. This gives clean process isolation — a TTS crash cannot bring down the daemon.
-- Audio is passed as a `numpy.ndarray` directly to faster-whisper. No temp files are written to disk.
-- The asyncio event loop must never block. Any CPU-bound work (Whisper inference) runs via `loop.run_in_executor`.
+- The daemon is the only long-running process. `rex-trigger` is a thin one-shot client that exits
+  after writing to the socket.
+- Piper runs as a subprocess, not via Python bindings. This gives clean process isolation — a TTS
+  crash cannot bring down the daemon.
+- Audio is passed as a `numpy.ndarray` (float32, 16 kHz mono) to the STT backend. faster-whisper
+  and mlx-whisper consume it directly. Parakeet writes a temp WAV file, which is deleted after
+  transcription.
+- The asyncio event loop must never block. CPU-bound work (STT inference, audio playback) runs via
+  `loop.run_in_executor`.
 
 ---
 
-## Source Layout
+## Source layout
 
 ```
 src/rex/
@@ -119,142 +119,152 @@ src/rex/
 ├── daemon/
 │   ├── main.py        — asyncio event loop, socket server, pipeline orchestration
 │   ├── audio.py       — sounddevice recording, start/stop, buffer management
-│   ├── stt.py         — faster-whisper wrapper, model lifecycle
-│   ├── llm.py         — response engine
-│   └── tts.py         — piper subprocess, audio playback via aplay/afplay
+│   ├── stt.py         — backend detection, Transcriber class (Parakeet/mlx/faster-whisper)
+│   ├── llm.py         — OpenAI-compatible LLM client, Rex persona
+│   └── tts.py         — Piper subprocess, raw PCM playback via sounddevice
 └── cli/
-    └── trigger.py     — unix socket client, sends start/stop/query, exits
+    └── trigger.py     — unix socket client, sends start/stop, exits immediately
 ```
+
+---
+
+## STT backend selection
+
+`stt._detect_backend()` runs at `Transcriber.load()` time and returns one of:
+`"parakeet"`, `"mlx"`, `"faster-whisper"`.
+
+Detection order:
+
+1. macOS + arm64 + `mlx_whisper` importable → `"mlx"`
+2. CUDA available + VRAM ≥ 6144 MB + `nemo.collections.asr` importable → `"parakeet"`
+3. Otherwise → `"faster-whisper"`
+
+Set `stt.backend` explicitly in config to bypass detection.
 
 ---
 
 ## Configuration
 
-Rex reads `~/.config/rex/config.toml` at daemon startup. The config is parsed once and held in memory — a daemon restart is required to pick up changes.
+Rex reads `~/.config/rex/config.toml` at daemon startup. The config is parsed once and held in
+memory — a daemon restart is required to pick up changes.
 
-The full config reference is in [docs/configuration.md](docs/configuration.md). The annotated example is at [config/config.example.toml](config/config.example.toml).
+Full reference: [docs/configuration.md](docs/configuration.md). Annotated example:
+[config/config.example.toml](config/config.example.toml).
 
 ---
 
-## Running Tests
+## Running tests
 
 ```bash
 just test
 ```
 
-Tests are split into two directories:
-
 - `tests/unit/` — isolated module tests, no external processes required
 - `tests/integration/` — full pipeline tests, requires Piper installed
 
-To run a single test file:
+Single file:
 
 ```bash
 uv run pytest tests/unit/test_stt.py -v
 ```
 
-To run with coverage:
+With coverage:
 
 ```bash
 just cov
-# opens htmlcov/index.html
 ```
 
 ---
 
 ## Debugging
 
-**Run the daemon in the foreground:**
+**Run in foreground:**
 
 ```bash
 just dev
 ```
 
-This starts Rex with `log_level = "debug"` and prints all output to the terminal. Ctrl+C to stop.
-
-**Tail service logs:**
+**Tail service logs (Linux):**
 
 ```bash
 just logs
-# equivalent to: journalctl --user -u rex -f
 ```
 
-**Send a trigger manually (without a hotkey):**
+**Send a trigger manually:**
 
 ```bash
 rex-trigger start
-# speak or wait 2 seconds
+# speak
 rex-trigger stop
 ```
 
 **Test TTS in isolation:**
 
 ```bash
-echo "Hello from Rex." | piper --model ~/.local/share/piper/en_US-lessac-medium.onnx --output-raw | aplay -r 22050 -f S16_LE -c 1
+echo "Hello from Rex." | piper-tts \
+    --model ~/.local/share/piper/voices/en_US-lessac-medium.onnx \
+    --output-raw \
+    | python3 -c "
+import sys, numpy as np, sounddevice as sd
+raw = sys.stdin.buffer.read()
+samples = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32767
+sd.play(samples, samplerate=22050); sd.wait()
+"
 ```
 
 **Inspect the socket:**
 
 ```bash
-ls -la $XDG_RUNTIME_DIR/rex.sock
+ls -la ${XDG_RUNTIME_DIR:-/tmp}/rex.sock
 ```
 
 ---
 
-## Platform Notes
+## Platform notes
 
 ### Linux
 
-The daemon installs as a systemd user service and integrates with the graphical session target. Hotkey binding is compositor-specific — the recommended approach for Hyprland is documented in [docs/installation.md](docs/installation.md). Other compositors follow the same pattern using their own keybind mechanism.
+The daemon installs as a systemd user service tied to the graphical session target. Hotkey binding
+is compositor-specific — the recommended setup for Hyprland is in [docs/installation.md](docs/installation.md).
 
-Audio I/O uses `sounddevice`, which wraps PortAudio. If the default device is wrong, query available devices:
-
-```bash
-python -c "import sounddevice; print(sounddevice.query_devices())"
-```
-
-Set the device name or index in `config.toml` under `[audio] device`.
+`pactl suspend-sink` runs at startup to prevent PipeWire from suspending the audio sink, which
+would cause a Bluetooth A2DP reconnect delay that clips the start of TTS responses. This call is
+silently skipped on macOS.
 
 ### macOS
 
-The daemon runs as a launchd user agent (support in v0.1+). Audio I/O and hotkey integration differ from Linux — see `docs/installation.md` for macOS-specific setup.
+Notifications use `osascript` (built-in, no dependencies). The `pactl` sink workaround is skipped
+— CoreAudio does not suspend sinks.
 
-Piper on macOS is installed via Homebrew. The binary path defaults to `/opt/homebrew/bin/piper`; override via `tts.piper_bin` in config if your setup differs.
-
----
-
-## Adding a Response (v0.0.1 Response Engine)
-
-The offline response engine in `src/rex/daemon/llm.py` matches keywords in the transcribed text. To add a new response:
-
-1. Add an entry to the `RESPONSES` dict — key is a substring matched case-insensitively, value is a callable returning a string.
-2. Add a unit test in `tests/unit/test_llm.py`.
-3. Add a changelog fragment in `changelogs/<pr-number>.md`.
-
-The keyword engine is intentionally simple and will be replaced by the Claude API in v0.1. Avoid investing in its complexity.
+For launchd autostart, create a plist at `~/Library/LaunchAgents/xyz.sigil.rex.plist` pointing at
+`~/.local/bin/rex`. This is not automated yet — run `rex` manually in the meantime.
 
 ---
 
 ## Logging
 
-Rex uses Python's standard `logging` module. Log level is controlled by `daemon.log_level` in config or the `REX_LOG_LEVEL` environment variable.
+Rex uses Python's standard `logging` module. Level is controlled by `daemon.log_level` in config.
 
-On Linux with systemd, logs are routed to the journal and readable via:
+**Linux:**
 
 ```bash
 journalctl --user -u rex
 ```
 
-On macOS, logs go to stderr (captured by launchd) and are readable via Console.app or `log stream --predicate 'process == "rex"'`.
+**macOS:**
+
+```bash
+log stream --predicate 'process == "rex"'
+```
 
 ---
 
-## Release Process
+## Release process
 
-See the `release` target in `justfile`. In summary:
+See the `release` target in `justfile`:
 
-1. All `changelogs/*.md` fragments are compiled into `CHANGELOG.md`
+1. Changelog fragments from `changelogs/*.md` are compiled into `CHANGELOG.md`
 2. Version is bumped in `pyproject.toml`
-3. A commit is made: `chore: release <version>`
-4. The commit is tagged `v<version>`
-5. Pushing the tag triggers the release CI workflow, which builds the package and creates a GitHub release
+3. Commit: `chore: release <version>`
+4. Tag: `v<version>`
+5. Pushing the tag triggers CI which builds and publishes the release

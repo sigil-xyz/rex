@@ -29,14 +29,31 @@ async def test_notify_skipped_when_disabled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_notify_calls_notify_send_when_enabled() -> None:
+async def test_notify_calls_correct_command_on_linux() -> None:
     config = NotificationConfig(enabled=True, timeout=3000)
     proc = MagicMock()
-    with patch("rex.daemon.main.asyncio.create_subprocess_exec", return_value=proc) as mock_exec:
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    with (
+        patch("rex.daemon.main.platform.system", return_value="Linux"),
+        patch("rex.daemon.main.asyncio.create_subprocess_exec", return_value=proc) as mock_exec,
+    ):
         await _notify("hello", config)
-    mock_exec.assert_called_once()
     args = mock_exec.call_args[0]
     assert "notify-send" in args
+
+
+@pytest.mark.asyncio
+async def test_notify_calls_osascript_on_macos() -> None:
+    config = NotificationConfig(enabled=True, timeout=3000)
+    proc = MagicMock()
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    with (
+        patch("rex.daemon.main.platform.system", return_value="Darwin"),
+        patch("rex.daemon.main.asyncio.create_subprocess_exec", return_value=proc) as mock_exec,
+    ):
+        await _notify("hello", config)
+    args = mock_exec.call_args[0]
+    assert "osascript" in args
 
 
 def _make_daemon() -> RexDaemon:

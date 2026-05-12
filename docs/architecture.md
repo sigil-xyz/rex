@@ -1,11 +1,12 @@
 # Architecture
 
-## System Overview
+## System overview
 
-Rex is a Unix daemon with a linear request-response pipeline. The daemon is always running; models are preloaded; latency is minimized.
+Rex is a Unix daemon with a linear request-response pipeline. The daemon is always running; models
+are preloaded at startup; latency is minimized.
 
 ```
-[User: hold SUPER+Space]
+[User: hold hotkey]
         │
         │  exec rex-trigger start
         ▼
@@ -13,64 +14,88 @@ Rex is a Unix daemon with a linear request-response pipeline. The daemon is alwa
                                            │
                                      start audio capture
                                            │
-[User: release SUPER+Space]                │
+[User: release hotkey]                     │
         │                                  │
         │  exec rex-trigger stop           │
         ▼                                  ▼
 [rex-trigger CLI]  ──unix socket──▶  stop audio capture
                                            │
                                            ▼
-                                    [STT: faster-whisper]
+                                    [STT backend]
                                      transcribed text
                                            │
                                            ▼
-                                    [Response engine]
+                                    [LLM response engine]
                                      response text
                                            │
                                ┌───────────┴───────────┐
                                ▼                       ▼
-                        [Piper TTS]             [notify-send]
-                        audio playback          desktop notification
+                        [Piper TTS]             [notification]
+                     sounddevice playback    notify-send / osascript
 ```
 
-## Component Boundaries
+## Component boundaries
 
 | Component | Process | Lifetime |
 |-----------|---------|---------|
-| `rex` daemon | systemd user service | always-on |
+| `rex` daemon | systemd service (Linux) / foreground (macOS) | always-on |
 | `rex-trigger` | one-shot exec | dies after socket write |
-| Whisper model | loaded in daemon | daemon lifetime |
-| Piper TTS | subprocess | per response |
-| aplay | subprocess | per response |
+| STT model | loaded in daemon at startup | daemon lifetime |
+| Piper TTS | subprocess per response | per response |
+| sounddevice playback | thread (via executor) | per response |
 
-## IPC Protocol
+## STT backends
 
-Unix socket at `$XDG_RUNTIME_DIR/rex.sock`.
+Rex selects the best available backend at startup when `backend = "auto"`:
 
-Messages are newline-terminated JSON:
+| Priority | Backend | Condition |
+|----------|---------|-----------|
+| 1 | Parakeet TDT 0.6B v2 | Apple Silicon? No. CUDA available + ≥6 GB VRAM + nemo-toolkit installed |
+| 2 | mlx-whisper large-v3 | macOS + arm64 + mlx-whisper installed |
+| 3 | faster-whisper large-v3 | Always available (fallback) |
 
-```json
-{"action": "start"}
-{"action": "stop"}
-{"action": "query", "text": "what time is it"}
+The backend is resolved once. It does not change while the daemon is running.
+
+## IPC protocol
+
+Unix socket at `$XDG_RUNTIME_DIR/rex.sock` (Linux) or `/tmp/rex.sock` (macOS).
+
+Messages are newline-terminated strings:
+
+```
+start\n
+stop\n
 ```
 
-## Memory Profile (target)
+## Data flow — audio
+
+```
+sounddevice → float32 numpy array (16 kHz mono)
+    │
+    ├── faster-whisper / mlx-whisper: passed directly as numpy array
+    │
+    └── parakeet: written to temp WAV → NeMo transcribe → temp file deleted
+```
+
+## Memory profile (approximate)
 
 | State | RAM |
 |-------|-----|
-| Daemon idle (no model) | ~25MB |
-| Daemon + Whisper tiny.en | ~175MB |
-| During TTS (Piper subprocess) | +50MB briefly |
+| Daemon idle, no model loaded | ~25 MB |
+| + faster-whisper large-v3 int8 | ~1.5 GB VRAM (or RAM on CPU) |
+| + Parakeet TDT 0.6B v2 | ~5 GB VRAM |
+| + mlx-whisper large-v3 | ~3 GB unified memory |
+| During TTS (Piper subprocess) | +50 MB briefly |
 
-## Data Flow — Audio
+## Platform differences
 
-```
-sounddevice → float32 numpy array → faster-whisper → str
-```
+| Concern | Linux | macOS |
+|---------|-------|-------|
+| Socket path | `$XDG_RUNTIME_DIR/rex.sock` | `/tmp/rex.sock` |
+| Notifications | `notify-send` | `osascript` |
+| Audio sink keep-alive | `pactl suspend-sink` (PipeWire) | not needed (CoreAudio) |
+| Service management | systemd user service | manual / launchd |
 
-No temp files. Audio stays in memory and is discarded after transcription.
-
-## Future: Tool Interface (v0.2+)
+## Future: tool interface (v0.2+)
 
 Not yet designed. See `docs/roadmap.md`.

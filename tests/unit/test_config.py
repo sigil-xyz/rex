@@ -14,7 +14,8 @@ from rex.config import (
 def test_load_config_missing_file(tmp_path: Path) -> None:
     config = load_config(tmp_path / "nonexistent.toml")
     assert isinstance(config, RexConfig)
-    assert config.stt.model == "tiny.en"
+    assert config.stt.model == ""
+    assert config.stt.backend == "auto"
     assert config.daemon.log_level == "info"
 
 
@@ -22,7 +23,8 @@ def test_load_config_empty_file(tmp_path: Path) -> None:
     p = tmp_path / "config.toml"
     p.write_text("")
     config = load_config(p)
-    assert config.stt.model == "tiny.en"
+    assert config.stt.model == ""
+    assert config.stt.backend == "auto"
     assert config.audio.sample_rate == 16000
 
 
