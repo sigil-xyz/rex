@@ -11,7 +11,7 @@ Rex is built incrementally. Each version ships a working, stable layer before th
 - [x] Push-to-talk via Hyprland hotkey
 - [x] On-device STT with faster-whisper `tiny.en`
 - [x] Keyword-based offline response engine
-- [x] Voice output via Piper TTS
+- [~] Voice output via Piper TTS (working, audio quality needs tuning)
 - [x] Desktop notification via notify-send
 - [x] systemd user service
 - [x] Unix socket IPC

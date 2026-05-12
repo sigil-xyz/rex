@@ -34,10 +34,12 @@ async def speak(text: str, config: TtsConfig) -> None:
         "-c",
         "1",
         stdin=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
 
-    await aplay.communicate(raw_audio)
+    _, aplay_err = await aplay.communicate(raw_audio)
 
     if aplay.returncode != 0:
-        logger.warning("aplay exited non-zero: %d", aplay.returncode)
+        logger.warning(
+            "aplay exited non-zero: %d — %s", aplay.returncode, aplay_err.decode().strip()
+        )
