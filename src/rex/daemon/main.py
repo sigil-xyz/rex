@@ -44,6 +44,7 @@ class RexDaemon:
         self._recorder = recorder
         self._transcriber = transcriber
         self._recording: bool = False
+        self._timeout_task: asyncio.Task[None] | None = None
         self._server: asyncio.Server | None = None
         self._socket_path: Path | None = None
 
@@ -68,12 +69,19 @@ class RexDaemon:
             case _:
                 logger.warning("unknown command: %r", command)
 
+    async def _recording_timeout(self) -> None:
+        timeout = self._config.daemon.recording_timeout
+        await asyncio.sleep(timeout)
+        logger.warning("recording timeout (%ds) — forcing stop", timeout)
+        await self._on_stop()
+
     async def _on_start(self) -> None:
         if self._recording:
             logger.warning("already recording — ignoring start")
             return
         self._recording = True
         self._recorder.start()
+        self._timeout_task = asyncio.create_task(self._recording_timeout())
         logger.info("recording started")
 
     async def _on_stop(self) -> None:
@@ -81,6 +89,9 @@ class RexDaemon:
             logger.warning("not recording — ignoring stop")
             return
         self._recording = False
+        if self._timeout_task is not None:
+            self._timeout_task.cancel()
+            self._timeout_task = None
 
         audio: np.ndarray = self._recorder.stop()
 
@@ -92,7 +103,7 @@ class RexDaemon:
         )
         logger.info("transcribed: %s", text)
 
-        response: str = llm.respond(text)
+        response: str = llm.respond(text, self._config.llm)
         logger.info("response: %s", response)
 
         await asyncio.gather(
