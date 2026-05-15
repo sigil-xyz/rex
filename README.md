@@ -52,43 +52,50 @@ For manual installation or troubleshooting, see [docs/installation.md](docs/inst
 
 ## Quickstart
 
-**1. Configure**
+After `bash scripts/setup.sh` completes:
 
-```bash
-cp config/config.example.toml ~/.config/rex/config.toml
+**1. Set your API key**
+
+Open `~/.config/rex/config.toml` and add your LLM API key:
+
+```toml
+[llm]
+api_key = "your-api-key"
 ```
-
-Edit `~/.config/rex/config.toml` — at minimum, set `tts.model` to the path of your downloaded voice model.
 
 **2. Start the daemon**
 
+Linux (systemd — started automatically by setup.sh):
+
 ```bash
-just service-install
+systemctl --user status rex
 ```
 
-Or run in the foreground to see what's happening:
+macOS (run manually, or add to launchd):
 
 ```bash
-just dev
+rex
 ```
 
 **3. Bind a hotkey**
 
-Rex responds to a `start` and `stop` signal sent via `rex-trigger`. Bind these to any key in your compositor, window manager, or system hotkey daemon.
-
-Example for **Hyprland**:
+Hyprland (`~/.config/hypr/hyprland.conf`):
 
 ```ini
-# ~/.config/hypr/hyprland.conf
-bind = SUPER, Space, exec, rex-trigger start
+bind        = SUPER, Space, exec, rex-trigger start
 bindrelease = SUPER, Space, exec, rex-trigger stop
+```
+
+macOS (skhd / Karabiner-Elements — see [docs/installation.md](docs/installation.md)):
+
+```
+# skhd: key down only (push-to-talk requires Karabiner for key-up)
+alt - space : rex-trigger start
 ```
 
 **4. Speak**
 
 Hold the hotkey, say something, release. Rex responds with voice and a desktop notification.
-
-For detailed setup instructions per platform, see [docs/installation.md](docs/installation.md).
 
 ---
 

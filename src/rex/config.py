@@ -23,6 +23,7 @@ class LlmConfig:
     max_tokens: int = 256
     base_url: str = "https://api.aicredits.in/v1"
     system_prompt: str = _DEFAULT_SYSTEM_PROMPT
+    memory_turns: int = 20
 
 
 @dataclass
@@ -67,6 +68,7 @@ class RexConfig:
     tts: TtsConfig = field(default_factory=TtsConfig)
     notification: NotificationConfig = field(default_factory=NotificationConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
+    memory_db: str = ""  # empty = use DEFAULT_DB_PATH
 
 
 def load_config(path: Path | None = None) -> RexConfig:
@@ -94,6 +96,7 @@ def load_config(path: Path | None = None) -> RexConfig:
         max_tokens=llm_data.get("max_tokens", LlmConfig.max_tokens),
         base_url=llm_data.get("base_url", LlmConfig.base_url),
         system_prompt=llm_data.get("system_prompt", LlmConfig.system_prompt),
+        memory_turns=llm_data.get("memory_turns", LlmConfig.memory_turns),
     )
 
     audio_data = data.get("audio", {})
@@ -125,5 +128,11 @@ def load_config(path: Path | None = None) -> RexConfig:
 
     logger.debug("loaded config from %s", path)
     return RexConfig(
-        daemon=daemon, audio=audio, stt=stt, tts=tts, notification=notification, llm=llm
+        daemon=daemon,
+        audio=audio,
+        stt=stt,
+        tts=tts,
+        notification=notification,
+        llm=llm,
+        memory_db=data.get("memory_db", ""),
     )

@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 import platform
@@ -104,7 +105,7 @@ class Transcriber:
     def _load_faster_whisper(self) -> None:
         from faster_whisper import WhisperModel
 
-        model_name = self._config.model or "large-v3"
+        model_name = self._config.model or "small.en"
         device = self._config.device or "auto"
         self._fw_model = WhisperModel(model_name, device=device, compute_type="int8")
         logger.info("faster-whisper loaded: %s on %s", model_name, device)
@@ -142,5 +143,6 @@ class Transcriber:
             audio, vad_filter=False, no_speech_threshold=1.0
         )
         text = " ".join(seg.text for seg in segments).strip()
+        gc.collect()
         logger.debug("faster-whisper: %s", text)
         return text
