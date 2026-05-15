@@ -10,6 +10,7 @@ import numpy as np
 from rex.config import NotificationConfig, RexConfig, load_config
 from rex.daemon import llm, tts
 from rex.daemon.audio import AudioRecorder
+from rex.daemon.memory import DEFAULT_DB_PATH, get_history, init_db, save_turn
 from rex.daemon.stt import Transcriber
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ class RexDaemon:
         self._timeout_task: asyncio.Task[None] | None = None
         self._server: asyncio.Server | None = None
         self._socket_path: Path | None = None
+        db_path = config.memory_db or DEFAULT_DB_PATH
+        self._db = init_db(db_path)
 
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -116,13 +119,30 @@ class RexDaemon:
         )
         logger.info("transcribed: %s", text)
 
-        response: str = llm.respond(text, self._config.llm)
-        logger.info("response: %s", response)
+        history = get_history(self._db, self._config.llm.memory_turns)
+        sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        response_parts: list[str] = []
 
-        await asyncio.gather(
-            tts.speak(response, self._config.tts),
-            _notify(response, self._config.notification),
-        )
+        async def _generate() -> None:
+            async for sentence in llm.respond_streaming(text, self._config.llm, history):
+                await sentence_queue.put(sentence)
+            await sentence_queue.put(None)
+
+        async def _speak_loop() -> None:
+            while True:
+                sentence = await sentence_queue.get()
+                if sentence is None:
+                    break
+                response_parts.append(sentence)
+                await tts.speak(sentence, self._config.tts)
+
+        await asyncio.gather(_generate(), _speak_loop())
+
+        response = " ".join(response_parts)
+        logger.info("response: %s", response)
+        save_turn(self._db, "user", text)
+        save_turn(self._db, "assistant", response)
+        await _notify(response, self._config.notification)
 
     async def serve(self, socket_path: Path) -> None:
         if socket_path.exists():
