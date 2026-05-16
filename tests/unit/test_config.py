@@ -4,10 +4,12 @@ from rex.config import (
     AudioConfig,
     DaemonConfig,
     NotificationConfig,
+    OutputConfig,
     RexConfig,
     SttConfig,
     TtsConfig,
     load_config,
+    resolve_output_mode,
 )
 
 
@@ -63,3 +65,44 @@ def test_defaults() -> None:
     assert c.stt == SttConfig()
     assert c.tts == TtsConfig()
     assert c.notification == NotificationConfig()
+
+
+# --- OutputConfig and resolve_output_mode ---
+
+
+def test_output_config_defaults() -> None:
+    assert OutputConfig().mode == "auto"
+
+
+def test_load_config_output_section(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text('[output]\nmode = "text"\n')
+    config = load_config(p)
+    assert config.output.mode == "text"
+
+
+def test_load_config_output_missing(tmp_path: Path) -> None:
+    p = tmp_path / "config.toml"
+    p.write_text("")
+    config = load_config(p)
+    assert config.output.mode == "auto"
+
+
+def test_resolve_output_mode_auto_voice() -> None:
+    assert resolve_output_mode("auto", True) == "voice"
+
+
+def test_resolve_output_mode_auto_text() -> None:
+    assert resolve_output_mode("auto", False) == "text"
+
+
+def test_resolve_output_mode_explicit_voice() -> None:
+    assert resolve_output_mode("voice", False) == "voice"
+
+
+def test_resolve_output_mode_explicit_text() -> None:
+    assert resolve_output_mode("text", True) == "text"
+
+
+def test_resolve_output_mode_notify_only() -> None:
+    assert resolve_output_mode("notify-only", False) == "text"

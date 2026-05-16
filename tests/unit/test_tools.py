@@ -11,6 +11,7 @@ from rex.daemon.tools import (
     _shell,
     _web_search,
     _write_file,
+    format_tool_error,
     get_tool_schemas,
 )
 
@@ -239,6 +240,29 @@ def test_write_file_overwrites_existing(tmp_path: Path) -> None:
         result = _write_file({"path": str(f), "content": "new content"})
     assert result.error is None
     assert f.read_text() == "new content"
+
+
+# --- format_tool_error ---
+
+
+def test_format_tool_error_ddgr() -> None:
+    result = format_tool_error("ddgr not found — install ddgr")
+    assert "sudo pacman -S ddgr" in result
+
+
+def test_format_tool_error_wl_paste() -> None:
+    result = format_tool_error("wl-paste not found — install wl-clipboard")
+    assert "sudo pacman -S wl-clipboard" in result
+
+
+def test_format_tool_error_wl_copy() -> None:
+    result = format_tool_error("wl-copy not found — install wl-clipboard")
+    assert "sudo pacman -S wl-clipboard" in result
+
+
+def test_format_tool_error_unknown() -> None:
+    error = "some unknown error"
+    assert format_tool_error(error) == error
 
 
 # --- registry & schemas ---

@@ -77,3 +77,11 @@ enabled = true
 
 # Seconds to wait for verbal confirmation before auto-cancelling a pending tool (write/execute trust)
 confirmation_timeout = 30
+
+[output]
+# How Rex delivers responses.
+#   "auto"        — text when invoked via rex ask/chat, voice when invoked via PTT
+#   "voice"       — always use TTS (requires Piper)
+#   "text"        — always print to terminal
+#   "notify-only" — desktop notification only, no TTS (text CLI falls back to text)
+# mode = "auto"

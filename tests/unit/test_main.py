@@ -129,8 +129,8 @@ async def test_on_stop_runs_pipeline() -> None:
     await daemon._on_start()
 
     with (
-        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
-        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock),
+        patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
+        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock),
         patch("rex.daemon.main._notify", new_callable=AsyncMock),
     ):
         await daemon._on_stop()
@@ -158,10 +158,10 @@ async def test_on_query_read_tool_runs_immediately() -> None:
 
     await daemon._on_start()
     with (
-        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
-        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
+        patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
+        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock) as mock_speak,
         patch("rex.daemon.main._notify", new_callable=AsyncMock),
-        patch.dict("rex.daemon.main.REGISTRY", {"read_file": fake_tool}),
+        patch.dict("rex.daemon.pipeline.REGISTRY", {"read_file": fake_tool}),
     ):
         await daemon._on_stop()
 
@@ -191,9 +191,9 @@ async def test_on_query_write_tool_asks_confirmation() -> None:
 
     await daemon._on_start()
     with (
-        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
+        patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
         patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
-        patch.dict("rex.daemon.main.REGISTRY", {"clipboard_write": fake_tool}),
+        patch.dict("rex.daemon.pipeline.REGISTRY", {"clipboard_write": fake_tool}),
     ):
         await daemon._on_stop()
 

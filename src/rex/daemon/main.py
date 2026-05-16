@@ -9,12 +9,13 @@ from pathlib import Path
 import numpy as np
 
 from rex.config import NotificationConfig, RexConfig, load_config, resolve_socket_path
-from rex.daemon import llm, tts
+from rex.daemon import tts
 from rex.daemon.audio import AudioRecorder
 from rex.daemon.llm import ToolCallRequest
-from rex.daemon.memory import DEFAULT_DB_PATH, get_history, init_db, save_tool_call, save_turn
+from rex.daemon.memory import DEFAULT_DB_PATH, init_db, save_tool_call, save_turn
+from rex.daemon.pipeline import _format_tool_result, run_query
 from rex.daemon.stt import Transcriber
-from rex.daemon.tools import REGISTRY, ToolResult
+from rex.daemon.tools import REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -48,35 +49,6 @@ async def _notify(text: str, config: NotificationConfig) -> None:
         )
 
     await proc.communicate()
-
-
-_SPEAK_LIMIT = 300
-
-
-def _format_tool_result(tool: ToolCallRequest, result: ToolResult) -> str:
-    if result.error:
-        return f"That didn't work: {result.error}"
-    text = result.output.strip()
-    match tool.name:
-        case "write_file":
-            return result.output
-        case "clipboard_write":
-            return "Done, copied to clipboard."
-        case "clipboard_read":
-            if not text:
-                return "The clipboard is empty."
-            clipped = text[: _SPEAK_LIMIT - 12]
-            return f"Clipboard: {clipped}" + ("…" if len(text) > _SPEAK_LIMIT - 12 else "")
-        case "shell":
-            if not text or text == "(no output)":
-                return "Command finished with no output."
-            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
-        case "web_search":
-            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
-        case _:  # read_file and future tools
-            if not text:
-                return "The file is empty."
-            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
 
 
 def _confirmation_prompt(tool: ToolCallRequest) -> str:
@@ -175,47 +147,17 @@ class RexDaemon:
             await self._on_query(text)
 
     async def _on_query(self, text: str) -> None:
-        history = get_history(self._db, self._config.llm.memory_turns)
-        msgs = llm.build_messages(text, self._config.llm, history)
-
-        sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
-        response_parts: list[str] = []
-        tool_calls: list[ToolCallRequest] = []
-
-        async def _generate() -> None:
-            async for item in llm.respond_streaming_msgs(
-                msgs, self._config.llm, tools_enabled=self._config.tools.enabled
-            ):
-                if isinstance(item, ToolCallRequest):
-                    tool_calls.append(item)
-                else:
-                    await sentence_queue.put(item)
-            await sentence_queue.put(None)
-
-        async def _speak_loop() -> None:
-            while True:
-                sentence = await sentence_queue.get()
-                if sentence is None:
-                    break
-                response_parts.append(sentence)
-                await tts.speak(sentence, self._config.tts)
-
-        await asyncio.gather(_generate(), _speak_loop())
-
-        turn_id = save_turn(self._db, "user", text)
-
-        if tool_calls:
-            tool = tool_calls[0]
-            tool_def = REGISTRY.get(tool.name)
-            if tool_def and tool_def.trust == "read":
-                await self._run_tool(tool, turn_id)
-            else:
-                await self._ask_confirmation(tool, turn_id)
-        else:
-            response = " ".join(response_parts)
-            logger.info("response: %s", response)
-            save_turn(self._db, "assistant", response)
+        async def _on_notify(response: str) -> None:
             await _notify(response, self._config.notification)
+
+        await run_query(
+            text,
+            self._config,
+            self._db,
+            output_mode="voice",
+            on_write_tool=self._ask_confirmation,
+            on_notify=_on_notify,
+        )
 
     async def _run_tool(
         self,
