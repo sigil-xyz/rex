@@ -1,6 +1,7 @@
 import asyncio
 import sqlite3
 import sys
+from pathlib import Path
 
 from rex.config import RexConfig, load_config, resolve_output_mode
 from rex.daemon.memory import DEFAULT_DB_PATH, init_db
@@ -37,7 +38,7 @@ async def _ask(
     db: sqlite3.Connection,
     output_mode: str,
 ) -> None:
-    await run_query(text, config, db, output_mode)  # type: ignore[arg-type]
+    await run_query(text, config, db, output_mode, cwd=Path.cwd())  # type: ignore[arg-type]
 
 
 def chat_main() -> None:
@@ -63,6 +64,6 @@ async def _chat(
                 continue
             if line.lower() in {"exit", "quit"}:
                 break
-            await run_query(line, config, db, output_mode)  # type: ignore[arg-type]
+            await run_query(line, config, db, output_mode, cwd=Path.cwd())  # type: ignore[arg-type]
     except KeyboardInterrupt:
         print()

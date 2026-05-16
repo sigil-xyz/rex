@@ -1,13 +1,15 @@
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from rex.config import RexConfig
 from rex.daemon.llm import ToolCallRequest
-from rex.daemon.memory import init_db
+from rex.daemon.memory import init_db, save_fact, save_tool_call, save_turn
 from rex.daemon.pipeline import (
     _confirmation_prompt,
     _format_tool_result,
+    _load_project_context,
     run_query,
 )
 from rex.daemon.tools import ToolResult
@@ -257,3 +259,130 @@ async def test_run_query_saves_user_and_assistant_turn() -> None:
     calls = [c.args[1] for c in mock_save.call_args_list]
     assert "user" in calls
     assert "assistant" in calls
+
+
+# --- _load_project_context ---
+
+
+def test_load_project_context_missing_returns_none(tmp_path: Path) -> None:
+    assert _load_project_context(cwd=tmp_path) is None
+
+
+def test_load_project_context_reads_file(tmp_path: Path) -> None:
+    ctx_dir = tmp_path / ".rex"
+    ctx_dir.mkdir()
+    (ctx_dir / "context.md").write_text("My project is rex")
+    result = _load_project_context(cwd=tmp_path)
+    assert result == "My project is rex"
+
+
+def test_load_project_context_explicit_path(tmp_path: Path) -> None:
+    ctx_file = tmp_path / "custom_context.md"
+    ctx_file.write_text("explicit path content")
+    result = _load_project_context(explicit_path=str(ctx_file))
+    assert result == "explicit path content"
+
+
+def test_load_project_context_oserror_returns_none(tmp_path: Path) -> None:
+    with patch("rex.daemon.pipeline.Path.read_text", side_effect=PermissionError("denied")):
+        result = _load_project_context(cwd=tmp_path)
+    assert result is None
+
+
+# --- run_query context injection ---
+
+
+@pytest.mark.asyncio
+async def test_run_query_injects_facts() -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    save_fact(db, "I use neovim")
+
+    captured_msgs: list = []
+
+    async def _fake_stream(msgs, *_a, **_kw):  # type: ignore[no-untyped-def]
+        captured_msgs.extend(msgs)
+        yield "ok."
+
+    with patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream):
+        await run_query("hi", config, db, output_mode="text")
+
+    system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
+    assert "I use neovim" in system_contents
+
+
+@pytest.mark.asyncio
+async def test_run_query_injects_recent_tool_calls() -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    turn_id = save_turn(db, "user", "previous query")
+    save_tool_call(db, turn_id, "shell", '{"command":"ls"}', "ok", "completed")
+
+    captured_msgs: list = []
+
+    async def _fake_stream(msgs, *_a, **_kw):  # type: ignore[no-untyped-def]
+        captured_msgs.extend(msgs)
+        yield "done."
+
+    with patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream):
+        await run_query("hi", config, db, output_mode="text")
+
+    system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
+    assert "shell" in system_contents
+
+
+@pytest.mark.asyncio
+async def test_run_query_injects_project_context(tmp_path: Path) -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    ctx_dir = tmp_path / ".rex"
+    ctx_dir.mkdir()
+    (ctx_dir / "context.md").write_text("My project is rex")
+
+    captured_msgs: list = []
+
+    async def _fake_stream(msgs, *_a, **_kw):  # type: ignore[no-untyped-def]
+        captured_msgs.extend(msgs)
+        yield "ok."
+
+    with patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream):
+        await run_query("hi", config, db, output_mode="text", cwd=tmp_path)
+
+    system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
+    assert "My project is rex" in system_contents
+
+
+@pytest.mark.asyncio
+async def test_run_query_no_project_context_when_file_absent(tmp_path: Path) -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+
+    captured_msgs: list = []
+
+    async def _fake_stream(msgs, *_a, **_kw):  # type: ignore[no-untyped-def]
+        captured_msgs.extend(msgs)
+        yield "ok."
+
+    with patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream):
+        await run_query("hi", config, db, output_mode="text", cwd=tmp_path)
+
+    system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
+    assert "Project context" not in system_contents
+
+
+@pytest.mark.asyncio
+async def test_run_query_empty_facts_skips_facts_block() -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+
+    captured_msgs: list = []
+
+    async def _fake_stream(msgs, *_a, **_kw):  # type: ignore[no-untyped-def]
+        captured_msgs.extend(msgs)
+        yield "ok."
+
+    with patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream):
+        await run_query("hi", config, db, output_mode="text")
+
+    system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
+    assert "Facts about" not in system_contents

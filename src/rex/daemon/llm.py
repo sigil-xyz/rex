@@ -32,11 +32,37 @@ def _get_client(config: LlmConfig) -> AsyncOpenAI:
 
 
 def build_messages(
-    text: str, config: LlmConfig, history: list[ChatCompletionMessageParam]
+    text: str,
+    config: LlmConfig,
+    history: list[ChatCompletionMessageParam],
+    facts: list[str] | None = None,
+    recent_tool_calls: list[dict[str, Any]] | None = None,
+    project_context: str | None = None,
 ) -> list[ChatCompletionMessageParam]:
-    system: ChatCompletionMessageParam = {"role": "system", "content": config.system_prompt}
+    system_content = config.system_prompt
+
+    extras: list[str] = []
+    if facts:
+        facts_block = "\n".join(f"- {f}" for f in facts)
+        extras.append(f"Facts about the user:\n{facts_block}")
+    if project_context:
+        extras.append(f"Project context:\n{project_context.strip()}")
+    if extras:
+        system_content = system_content + "\n\n" + "\n\n".join(extras)
+
+    system: ChatCompletionMessageParam = {"role": "system", "content": system_content}
     user: ChatCompletionMessageParam = {"role": "user", "content": text}
-    return [system, *history, user]
+
+    injected: list[ChatCompletionMessageParam] = []
+    if recent_tool_calls:
+        lines = ["Recent tool calls (for your awareness — not the user's current instruction):"]
+        for tc in recent_tool_calls:
+            status = tc.get("status", "unknown")
+            result_preview = (tc.get("result") or "")[:120]
+            lines.append(f"  {tc['tool_name']}({tc['args']}) → [{status}] {result_preview}")
+        injected.append({"role": "system", "content": "\n".join(lines)})
+
+    return [system, *history, *injected, user]
 
 
 async def respond(text: str, config: LlmConfig, history: list[ChatCompletionMessageParam]) -> str:

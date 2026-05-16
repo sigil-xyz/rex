@@ -9,29 +9,34 @@ DEFAULT_DB_PATH = str(Path.home() / ".local" / "share" / "rex" / "memory.db")
 
 
 def init_db(path: str) -> sqlite3.Connection:
-    turns_table = """
-        CREATE TABLE IF NOT EXISTS turns (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role Text NOT NULL,
-            content TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        );
-    """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
-    conn.execute(turns_table)
-    tool_calls_table = """
-      CREATE TABLE IF NOT EXISTS tool_calls (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          turn_id INTEGER REFERENCES turns(id),
-          tool_name TEXT NOT NULL,
-          args TEXT NOT NULL,
-          result TEXT,
-          status TEXT NOT NULL,
-          created_at INTEGER NOT NULL
-          );
-    """
-    conn.execute(tool_calls_table)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS turns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tool_calls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            turn_id INTEGER REFERENCES turns(id),
+            tool_name TEXT NOT NULL,
+            args TEXT NOT NULL,
+            result TEXT,
+            status TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS facts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL
+        )
+    """)
     conn.commit()
     return conn
 
@@ -76,9 +81,29 @@ def save_tool_call(
 
 def get_recent_tool_calls(db: sqlite3.Connection, n: int) -> list[dict[str, Any]]:
     cursor = db.execute(
-        "SELECT tool_name, args, result, status FROM tool_calls ORDER BY id DESC LIMIT  ?",
+        "SELECT tool_name, args, result, status FROM tool_calls ORDER BY id DESC LIMIT ?",
         (n,),
     )
     rows = cursor.fetchall()
     rows.reverse()
     return [{"tool_name": r[0], "args": r[1], "result": r[2], "status": r[3]} for r in rows]
+
+
+def save_fact(db: sqlite3.Connection, content: str) -> bool:
+    cursor = db.execute(
+        "INSERT OR IGNORE INTO facts (content, created_at) VALUES (?, ?)",
+        (content.strip(), int(time.time())),
+    )
+    db.commit()
+    return cursor.rowcount > 0
+
+
+def get_facts(db: sqlite3.Connection) -> list[str]:
+    cursor = db.execute("SELECT content FROM facts ORDER BY id ASC")
+    return [row[0] for row in cursor.fetchall()]
+
+
+def delete_fact(db: sqlite3.Connection, content: str) -> bool:
+    cursor = db.execute("DELETE FROM facts WHERE content = ?", (content.strip(),))
+    db.commit()
+    return cursor.rowcount > 0

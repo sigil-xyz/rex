@@ -1,13 +1,13 @@
 <div align="center">
 
-```
+<pre>
 ██████╗ ███████╗██╗  ██╗
 ██╔══██╗██╔════╝╚██╗██╔╝
 ██████╔╝█████╗   ╚███╔╝
 ██╔══██╗██╔══╝   ██╔██╗
 ██║  ██║███████╗██╔╝ ██╗
 ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
-```
+</pre>
 
 **local · private · yours**
 
@@ -16,10 +16,11 @@ _Not a chatbot. Not a voice toy. Infrastructure that thinks alongside you._
 <br/>
 
 [![CI](https://github.com/sigil-xyz/rex/actions/workflows/ci.yml/badge.svg)](https://github.com/sigil-xyz/rex/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue?style=flat-square)](https://www.python.org)
-[![License: GPL v3](https://img.shields.io/badge/license-GPL%20v3-blue?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey?style=flat-square)](#installation)
-[![Status](https://img.shields.io/badge/status-early%20development-orange?style=flat-square)](#status)
+[![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org)
+[![License](https://img.shields.io/badge/license-GPL--3.0-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-333333?style=flat-square&logo=linux&logoColor=white)](#installation)
+[![No Cloud](https://img.shields.io/badge/cloud-none%20·%20local%20only-22c55e?style=flat-square)](#)
+[![Status](https://img.shields.io/badge/status-alpha-f97316?style=flat-square)](#status)
 
 </div>
 

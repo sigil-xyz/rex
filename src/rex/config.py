@@ -75,6 +75,12 @@ class OutputConfig:
     mode: str = "auto"  # "auto" | "voice" | "text" | "notify-only"
 
 
+@dataclass
+class MemoryConfig:
+    recent_tool_calls: int = 5
+    project_context_path: str = ""
+
+
 def resolve_output_mode(config_mode: str, input_was_voice: bool) -> Literal["voice", "text"]:
     if config_mode == "voice":
         return "voice"
@@ -96,6 +102,7 @@ class RexConfig:
     llm: LlmConfig = field(default_factory=LlmConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
     memory_db: str = ""  # empty = use DEFAULT_DB_PATH
 
 
@@ -177,6 +184,14 @@ def load_config(path: Path | None = None) -> RexConfig:
         mode=output_data.get("mode", OutputConfig.mode),
     )
 
+    memory_data = data.get("memory", {})
+    memory = MemoryConfig(
+        recent_tool_calls=memory_data.get("recent_tool_calls", MemoryConfig.recent_tool_calls),
+        project_context_path=memory_data.get(
+            "project_context_path", MemoryConfig.project_context_path
+        ),
+    )
+
     logger.debug("loaded config from %s", path)
     return RexConfig(
         daemon=daemon,
@@ -187,5 +202,6 @@ def load_config(path: Path | None = None) -> RexConfig:
         llm=llm,
         tools=tools,
         output=output,
+        memory=memory,
         memory_db=data.get("memory_db", ""),
     )

@@ -3,17 +3,47 @@ import json
 import logging
 import sqlite3
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Literal
 
 from rex.config import RexConfig
 from rex.daemon import llm, tts
 from rex.daemon.llm import ToolCallRequest
-from rex.daemon.memory import get_history, save_tool_call, save_turn
+from rex.daemon.memory import (
+    get_facts,
+    get_history,
+    get_recent_tool_calls,
+    save_tool_call,
+    save_turn,
+)
 from rex.daemon.tools import REGISTRY, ToolResult, format_tool_error
 
 logger = logging.getLogger(__name__)
 
 OutputMode = Literal["voice", "text"]
+
+
+def _load_project_context(
+    cwd: Path | None = None,
+    explicit_path: str = "",
+) -> str | None:
+    if explicit_path:
+        target = Path(explicit_path).expanduser()
+    else:
+        base = cwd or Path.cwd()
+        target = base / ".rex" / "context.md"
+    try:
+        return target.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        if explicit_path:
+            logger.warning("project_context_path set but file not found: %s", target)
+        else:
+            logger.debug("no project context at %s", target)
+        return None
+    except OSError as e:
+        logger.warning("could not read project context at %s: %s", target, e)
+        return None
+
 
 _SPEAK_LIMIT = 300
 
@@ -112,9 +142,23 @@ async def run_query(
     output_mode: OutputMode,
     on_write_tool: Callable[[ToolCallRequest, int], Awaitable[None]] | None = None,
     on_notify: Callable[[str], Awaitable[None]] | None = None,
+    cwd: Path | None = None,
 ) -> None:
     history = get_history(db, config.llm.memory_turns)
-    msgs = llm.build_messages(text, config.llm, history)
+    facts = get_facts(db)
+    recent_tools = get_recent_tool_calls(db, config.memory.recent_tool_calls)
+    project_ctx = _load_project_context(
+        cwd=cwd,
+        explicit_path=config.memory.project_context_path,
+    )
+    msgs = llm.build_messages(
+        text,
+        config.llm,
+        history,
+        facts=facts or None,
+        recent_tool_calls=recent_tools or None,
+        project_context=project_ctx,
+    )
 
     sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
     response_parts: list[str] = []
