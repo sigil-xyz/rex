@@ -6,8 +6,10 @@ import pytest
 
 from rex.config import NotificationConfig, RexConfig
 from rex.daemon.audio import AudioRecorder
-from rex.daemon.main import RexDaemon, _notify, get_socket_path
+from rex.daemon.llm import ToolCallRequest
+from rex.daemon.main import RexDaemon, _confirmation_prompt, _notify, get_socket_path
 from rex.daemon.stt import Transcriber
+from rex.daemon.tools import ToolResult
 
 
 def test_get_socket_path_uses_xdg(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -58,9 +60,32 @@ async def test_notify_calls_osascript_on_macos() -> None:
 
 def _make_daemon() -> RexDaemon:
     config = RexConfig()
+    config.memory_db = ":memory:"
     recorder = MagicMock(spec=AudioRecorder)
     transcriber = MagicMock(spec=Transcriber)
     return RexDaemon(config, recorder, transcriber)
+
+
+# --- confirmation prompt ---
+
+
+def test_confirmation_prompt_shell() -> None:
+    tool = ToolCallRequest(id="c1", name="shell", args={"command": "ls -la"})
+    assert _confirmation_prompt(tool) == "Run: ls -la?"
+
+
+def test_confirmation_prompt_clipboard_write() -> None:
+    tool = ToolCallRequest(id="c1", name="clipboard_write", args={"text": "hello world"})
+    assert "Copy to clipboard" in _confirmation_prompt(tool)
+    assert "hello world" in _confirmation_prompt(tool)
+
+
+def test_confirmation_prompt_generic() -> None:
+    tool = ToolCallRequest(id="c1", name="web_search", args={"query": "arch"})
+    assert "web_search" in _confirmation_prompt(tool)
+
+
+# --- dispatch & basic state ---
 
 
 @pytest.mark.asyncio
@@ -98,16 +123,156 @@ async def test_on_stop_runs_pipeline() -> None:
     daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
     daemon._transcriber.transcribe.return_value = "hello"
 
+    async def _fake_stream(*_a, **_kw):
+        yield "Hello there."
+
     await daemon._on_start()
 
     with (
-        patch("rex.daemon.main.llm.respond", return_value="Hello. How can I help?"),
+        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
         patch("rex.daemon.main.tts.speak", new_callable=AsyncMock),
         patch("rex.daemon.main._notify", new_callable=AsyncMock),
     ):
         await daemon._on_stop()
 
     assert daemon._recording is False
+
+
+# --- read tool: immediate execution ---
+
+
+@pytest.mark.asyncio
+async def test_on_query_read_tool_runs_immediately() -> None:
+    daemon = _make_daemon()
+    daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
+    daemon._transcriber.transcribe.return_value = "read my file"
+
+    tool_call = ToolCallRequest(id="c1", name="read_file", args={"path": "/tmp/x.txt"})
+
+    async def _fake_stream(*_a, **_kw):
+        yield tool_call
+
+    fake_tool = MagicMock()
+    fake_tool.trust = "read"
+    fake_tool.run.return_value = ToolResult(output="file contents")
+
+    await daemon._on_start()
+    with (
+        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
+        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
+        patch("rex.daemon.main._notify", new_callable=AsyncMock),
+        patch.dict("rex.daemon.main.REGISTRY", {"read_file": fake_tool}),
+    ):
+        await daemon._on_stop()
+
+    # tool ran, result spoken locally — no second LLM call
+    fake_tool.run.assert_called_once_with({"path": "/tmp/x.txt"})
+    assert daemon._pending_tool is None
+    spoken = [c.args[0] for c in mock_speak.call_args_list]
+    assert "file contents" in spoken
+
+
+# --- write/execute tool: confirmation gate ---
+
+
+@pytest.mark.asyncio
+async def test_on_query_write_tool_asks_confirmation() -> None:
+    daemon = _make_daemon()
+    daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
+    daemon._transcriber.transcribe.return_value = "copy something"
+
+    tool_call = ToolCallRequest(id="c2", name="clipboard_write", args={"text": "hello"})
+
+    async def _fake_stream(*_a, **_kw):
+        yield tool_call
+
+    fake_tool = MagicMock()
+    fake_tool.trust = "write"
+
+    await daemon._on_start()
+    with (
+        patch("rex.daemon.main.llm.respond_streaming_msgs", side_effect=_fake_stream),
+        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
+        patch.dict("rex.daemon.main.REGISTRY", {"clipboard_write": fake_tool}),
+    ):
+        await daemon._on_stop()
+
+    # confirmation prompt spoken, tool is pending
+    assert daemon._pending_tool is tool_call
+    spoken = [c.args[0] for c in mock_speak.call_args_list]
+    assert any("clipboard" in s.lower() for s in spoken)
+
+    # clean up background timeout task
+    if daemon._confirmation_task:
+        daemon._confirmation_task.cancel()
+
+
+# --- confirmation: yes → runs tool ---
+
+
+@pytest.mark.asyncio
+async def test_on_confirmation_yes_runs_tool() -> None:
+    daemon = _make_daemon()
+    tool_call = ToolCallRequest(id="c3", name="shell", args={"command": "ls"})
+    daemon._pending_tool = tool_call
+    daemon._pending_turn_id = 1
+
+    fake_tool = MagicMock()
+    fake_tool.run.return_value = ToolResult(output="file1\nfile2")
+
+    with (
+        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
+        patch("rex.daemon.main._notify", new_callable=AsyncMock),
+        patch.dict("rex.daemon.main.REGISTRY", {"shell": fake_tool}),
+    ):
+        await daemon._on_confirmation("yes please")
+
+    fake_tool.run.assert_called_once()
+    assert daemon._pending_tool is None
+    spoken = [c.args[0] for c in mock_speak.call_args_list]
+    assert "file1\nfile2" in spoken
+
+
+# --- confirmation: no → cancels ---
+
+
+@pytest.mark.asyncio
+async def test_on_confirmation_no_cancels() -> None:
+    daemon = _make_daemon()
+    tool_call = ToolCallRequest(id="c4", name="shell", args={"command": "ls"})
+    daemon._pending_tool = tool_call
+    daemon._pending_turn_id = 2
+
+    with patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak:
+        await daemon._on_confirmation("no cancel that")
+
+    assert daemon._pending_tool is None
+    spoken = [c.args[0] for c in mock_speak.call_args_list]
+    assert any("Cancel" in s for s in spoken)
+
+
+# --- confirmation timeout ---
+
+
+@pytest.mark.asyncio
+async def test_confirmation_timeout_cancels() -> None:
+    daemon = _make_daemon()
+    tool_call = ToolCallRequest(id="c5", name="shell", args={"command": "ls"})
+    daemon._pending_tool = tool_call
+    daemon._pending_turn_id = 3
+
+    with (
+        patch("rex.daemon.main.asyncio.sleep", new_callable=AsyncMock),
+        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
+    ):
+        await daemon._confirmation_timeout()
+
+    assert daemon._pending_tool is None
+    spoken = [c.args[0] for c in mock_speak.call_args_list]
+    assert any("Cancel" in s for s in spoken)
+
+
+# --- shutdown ---
 
 
 @pytest.mark.asyncio
