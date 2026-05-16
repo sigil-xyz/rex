@@ -142,6 +142,12 @@ async def respond_with_tool_result(
     result: str,
     config: LlmConfig,
 ) -> AsyncGenerator[str, None]:
+    """Stream a follow-up LLM response after a tool call.
+
+    Not called by the current pipeline — results are formatted locally in main.py
+    to avoid a second API round-trip. Reserved for use when richer LLM-generated
+    summaries of tool output are needed (planned for v0.4).
+    """
     assistant_msg: ChatCompletionMessageParam = {
         "role": "assistant",
         "tool_calls": [

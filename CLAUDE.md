@@ -30,4 +30,5 @@ Rex is a voice-activated local AI assistant daemon for Arch Linux / Hyprland. It
 - Add dependencies without justification in the PR
 - Skip type annotations on public functions
 - Break the asyncio event loop with blocking calls
-- Mention AI tools in commit messages, code comments, or PR descriptions
+- Mention AI tools in commit messages, code comments, or PR description body text
+- **Do** check the "AI-generated code disclosed" checkbox in the PR checklist when code was AI-generated — this lets maintainers review it more strictly

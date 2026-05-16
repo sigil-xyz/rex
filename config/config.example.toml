@@ -6,6 +6,12 @@
 # Logging level: debug, info, warning, error
 log_level = "info"
 
+# Maximum recording duration in seconds before auto-stop
+# recording_timeout = 30
+
+# Override the Unix socket path (default: $XDG_RUNTIME_DIR/rex.sock)
+# socket_path = ""
+
 [audio]
 # Input device name or index — leave empty for system default
 # List devices: python3 -c "import sounddevice; print(sounddevice.query_devices())"
@@ -21,9 +27,9 @@ sample_rate = 16000
 backend = "auto"
 
 # Model override — leave empty to use the backend default:
-#   parakeet      → nvidia/parakeet-tdt-0.6b-v2
-#   mlx           → mlx-community/whisper-large-v3-mlx
-#   faster-whisper → large-v3
+#   parakeet       → nvidia/parakeet-tdt-0.6b-v2
+#   mlx            → mlx-community/whisper-large-v3-mlx
+#   faster-whisper → small.en (CPU) — set to "large-v3" for higher accuracy
 model = ""
 
 # Device for faster-whisper only ("cpu", "cuda", or "auto")
@@ -35,20 +41,39 @@ device = "cpu"
 # Linux (AUR): piper-tts  or  /usr/bin/piper-tts
 piper_bin = "piper-tts"
 
-# Path to the Piper voice model (.onnx file)
+# Path to the Piper voice model (.onnx file) — required
 # Download voices: https://huggingface.co/rhasspy/piper-voices
 model = "/usr/share/piper/voices/en_US-lessac-medium.onnx"
 
 [llm]
 # OpenAI-compatible API key
 api_key  = ""
-# Base URL for the LLM endpoint
+
+# Base URL for the LLM endpoint (any OpenAI-compatible API works)
 base_url = "https://api.aicredits.in/v1"
+
 # Model identifier passed to the API
 model    = "anthropic/claude-haiku-4-5"
+
+# Maximum tokens in the LLM response
+max_tokens = 1024
+
+# Number of past conversation turns to include in each request (0 = no memory)
+memory_turns = 20
+
+# Override the system prompt — leave empty to use the built-in default
+# system_prompt = ""
 
 [notification]
 # Show desktop notification with response text
 enabled = true
-# Notification display duration in milliseconds
+
+# Notification display duration in milliseconds (Linux only; ignored on macOS)
 timeout = 5000
+
+[tools]
+# Enable or disable all tool use
+enabled = true
+
+# Seconds to wait for verbal confirmation before auto-cancelling a pending tool (write/execute trust)
+confirmation_timeout = 30
