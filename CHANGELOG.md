@@ -7,6 +7,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-16
+
+### Added
+
+- `rex-ask <question>` — one-shot text query from the terminal, no daemon required
+- `rex-chat` — persistent REPL that shares conversation memory with the voice daemon
+- `pipeline.py` — shared LLM+tool pipeline used by both the voice daemon and CLI commands
+- `OutputConfig` and `resolve_output_mode()` — new `[output]` config section with `auto/voice/text/notify-only` modes
+- `format_tool_error()` — actionable install hints when `ddgr` or `wl-clipboard` are missing
+- Write/execute tools in text mode prompt `[y/N]:` via stdin; read tools run silently
+
+### Changed
+
+- `RexDaemon._on_query` refactored to delegate to `pipeline.run_query` — voice path behaviour unchanged
+
 ## [0.2.0] - 2026-05-16
 
 ### Added

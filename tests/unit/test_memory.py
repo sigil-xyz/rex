@@ -1,9 +1,12 @@
 import sqlite3
 
 from rex.daemon.memory import (
+    delete_fact,
+    get_facts,
     get_history,
     get_recent_tool_calls,
     init_db,
+    save_fact,
     save_tool_call,
     save_turn,
 )
@@ -83,3 +86,71 @@ def test_get_recent_tool_calls_returns_ordered() -> None:
 def test_get_recent_tool_calls_empty() -> None:
     db = _db()
     assert get_recent_tool_calls(db, 10) == []
+
+
+# --- facts CRUD ---
+
+
+def test_save_fact_returns_true_on_insert() -> None:
+    db = _db()
+    assert save_fact(db, "my name is Vinod") is True
+
+
+def test_save_fact_persists() -> None:
+    db = _db()
+    save_fact(db, "uses Arch Linux")
+    assert get_facts(db) == ["uses Arch Linux"]
+
+
+def test_save_fact_returns_false_on_duplicate() -> None:
+    db = _db()
+    save_fact(db, "duplicate fact")
+    assert save_fact(db, "duplicate fact") is False
+    assert len(get_facts(db)) == 1
+
+
+def test_get_facts_ordered_by_insertion() -> None:
+    db = _db()
+    save_fact(db, "B")
+    save_fact(db, "A")
+    assert get_facts(db) == ["B", "A"]
+
+
+def test_get_facts_empty_db() -> None:
+    db = _db()
+    assert get_facts(db) == []
+
+
+def test_delete_fact_returns_true_on_match() -> None:
+    db = _db()
+    save_fact(db, "to delete")
+    assert delete_fact(db, "to delete") is True
+    assert get_facts(db) == []
+
+
+def test_delete_fact_returns_false_on_miss() -> None:
+    db = _db()
+    assert delete_fact(db, "nonexistent") is False
+
+
+def test_facts_table_survives_reinit(tmp_path: object) -> None:
+    import os
+
+    db_path = os.path.join(str(tmp_path), "memory.db")  # type: ignore[arg-type]
+    db1 = init_db(db_path)
+    save_fact(db1, "persisted fact")
+    db1.close()
+    db2 = init_db(db_path)
+    assert get_facts(db2) == ["persisted fact"]
+
+
+def test_get_recent_tool_calls_caps_at_n() -> None:
+    db = _db()
+    turn_id = save_turn(db, "user", "test")
+    save_tool_call(db, turn_id, "shell", '{"command":"ls"}', "a", "completed")
+    save_tool_call(db, turn_id, "shell", '{"command":"pwd"}', "b", "completed")
+    save_tool_call(db, turn_id, "read_file", '{"path":"/tmp/x"}', "c", "completed")
+    rows = get_recent_tool_calls(db, 2)
+    assert len(rows) == 2
+    assert rows[0]["args"] == '{"command":"pwd"}'
+    assert rows[1]["args"] == '{"path":"/tmp/x"}'

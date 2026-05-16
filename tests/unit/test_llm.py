@@ -3,7 +3,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rex.config import LlmConfig
-from rex.daemon.llm import ToolCallRequest, respond, respond_streaming, respond_with_tool_result
+from rex.daemon.llm import (
+    ToolCallRequest,
+    build_messages,
+    respond,
+    respond_streaming,
+    respond_with_tool_result,
+)
 
 
 def _config() -> LlmConfig:
@@ -180,3 +186,70 @@ async def test_history_injected_between_system_and_user(
     assert messages[-1] == {"role": "user", "content": "new message"}
     mid = messages[1:-1]
     assert [(m["role"], m["content"]) for m in mid] == history_roles
+
+
+# --- build_messages context injection ---
+
+
+def test_facts_appended_to_system_prompt() -> None:
+    cfg = _config()
+    msgs = build_messages("hi", cfg, [], facts=["name is Vinod", "uses Arch Linux"])
+    system_content = msgs[0]["content"]
+    assert "Facts about the user" in system_content  # type: ignore[operator]
+    assert "name is Vinod" in system_content  # type: ignore[operator]
+    assert "uses Arch Linux" in system_content  # type: ignore[operator]
+
+
+def test_project_context_appended_to_system_prompt() -> None:
+    cfg = _config()
+    msgs = build_messages("hi", cfg, [], project_context="A FastAPI project called orbit")
+    system_content = msgs[0]["content"]
+    assert "Project context" in system_content  # type: ignore[operator]
+    assert "FastAPI" in system_content  # type: ignore[operator]
+
+
+def test_recent_tool_calls_injected_as_separate_system_message() -> None:
+    cfg = _config()
+    tc = [
+        {
+            "tool_name": "shell",
+            "args": '{"command":"ls"}',
+            "result": "file.txt",
+            "status": "completed",
+        }
+    ]
+    msgs = build_messages("hi", cfg, [], recent_tool_calls=tc)
+    system_msgs = [m for m in msgs if m["role"] == "system"]
+    assert len(system_msgs) == 2
+    tool_msg_content = system_msgs[1]["content"]
+    assert "shell" in tool_msg_content  # type: ignore[operator]
+
+
+def test_no_context_produces_same_structure() -> None:
+    cfg = _config()
+    msgs = build_messages("hello", cfg, [])
+    assert len(msgs) == 2
+    assert msgs[0]["role"] == "system"
+    assert msgs[1] == {"role": "user", "content": "hello"}
+
+
+def test_empty_facts_list_skips_facts_block() -> None:
+    cfg = _config()
+    msgs = build_messages("hi", cfg, [], facts=[])
+    assert "Facts about the user" not in msgs[0]["content"]  # type: ignore[operator]
+
+
+def test_facts_and_project_context_both_present() -> None:
+    cfg = _config()
+    msgs = build_messages(
+        "hi",
+        cfg,
+        [],
+        facts=["uses neovim"],
+        project_context="This is the rex project",
+    )
+    system_content = msgs[0]["content"]
+    assert "Facts about the user" in system_content  # type: ignore[operator]
+    assert "Project context" in system_content  # type: ignore[operator]
+    assert "uses neovim" in system_content  # type: ignore[operator]
+    assert "rex project" in system_content  # type: ignore[operator]
