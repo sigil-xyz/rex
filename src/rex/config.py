@@ -23,7 +23,7 @@ _DEFAULT_SYSTEM_PROMPT = (
 class LlmConfig:
     model: str = "anthropic/claude-haiku-4-5"
     api_key: str = ""
-    max_tokens: int = 256
+    max_tokens: int = 1024
     base_url: str = "https://api.aicredits.in/v1"
     system_prompt: str = _DEFAULT_SYSTEM_PROMPT
     memory_turns: int = 20
@@ -79,6 +79,16 @@ class RexConfig:
     llm: LlmConfig = field(default_factory=LlmConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     memory_db: str = ""  # empty = use DEFAULT_DB_PATH
+
+
+def resolve_socket_path(override: str = "") -> Path:
+    """Return the Unix socket path, honoring daemon.socket_path if configured."""
+    if override:
+        return Path(override).expanduser()
+    import os
+
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+    return Path(runtime_dir) / "rex.sock"
 
 
 def load_config(path: Path | None = None) -> RexConfig:

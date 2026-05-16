@@ -1,15 +1,16 @@
 import asyncio
 import logging
-import os
 import sys
 from pathlib import Path
+
+from rex.config import load_config, resolve_socket_path
 
 logger = logging.getLogger(__name__)
 
 
 def get_socket_path() -> Path:
-    runtime_user_directory = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-    return Path(runtime_user_directory) / "rex.sock"
+    config = load_config()
+    return resolve_socket_path(config.daemon.socket_path)
 
 
 async def socket_connection(command: str) -> None:

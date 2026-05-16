@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from rex.config import NotificationConfig, RexConfig, load_config
+from rex.config import NotificationConfig, RexConfig, load_config, resolve_socket_path
 from rex.daemon import llm, tts
 from rex.daemon.audio import AudioRecorder
 from rex.daemon.llm import ToolCallRequest
@@ -22,8 +22,7 @@ _CONFIRM_WORDS = {"yes", "confirm", "do it", "yeah", "yep", "sure", "ok", "okay"
 
 
 def get_socket_path() -> Path:
-    runtime_user_directory = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
-    return Path(runtime_user_directory) / "rex.sock"
+    return resolve_socket_path()
 
 
 async def _notify(text: str, config: NotificationConfig) -> None:
@@ -322,7 +321,7 @@ async def _main() -> None:
     transcriber.load()  # blocks briefly — loads whisper model from disk
 
     daemon = RexDaemon(config, recorder, transcriber)
-    socket_path = get_socket_path()
+    socket_path = resolve_socket_path(config.daemon.socket_path)
 
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(daemon.shutdown()))

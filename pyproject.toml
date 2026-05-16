@@ -4,17 +4,17 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rex"
-version = "0.0.1"
+version = "0.2.0"
 description = "A local AI assistant daemon for Linux and macOS"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
 keywords = ["ai", "assistant", "voice", "linux", "hyprland", "daemon"]
 classifiers = [
     "Development Status :: 1 - Planning",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: POSIX :: Linux",
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python :: 3.11",

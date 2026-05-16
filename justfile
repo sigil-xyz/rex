@@ -36,9 +36,9 @@ cov:
 typos:
     typos .
 
-# Start the daemon in foreground dev mode
+# Start the daemon in foreground with debug logging
 dev:
-    uv run rex --dev
+    uv run rex
 
 # View live daemon logs
 logs:

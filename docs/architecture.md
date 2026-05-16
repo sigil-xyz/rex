@@ -96,6 +96,23 @@ sounddevice → float32 numpy array (16 kHz mono)
 | Audio sink keep-alive | `pactl suspend-sink` (PipeWire) | not needed (CoreAudio) |
 | Service management | systemd user service | manual / launchd |
 
-## Future: tool interface (v0.2+)
+## Tool system
 
-Not yet designed. See `docs/roadmap.md`.
+Tools are registered in `src/rex/daemon/tools.py` via `REGISTRY: dict[str, ToolDef]`.
+
+Each `ToolDef` declares a trust level:
+
+| Trust | Gate | Examples |
+|-------|------|---------|
+| `read` | Runs immediately, no confirmation | `read_file`, `clipboard_read`, `web_search` |
+| `write` | Rex speaks the action, waits for PTT confirmation | `write_file`, `clipboard_write` |
+| `execute` | Same as write — Rex speaks the full command first | `shell` |
+
+`get_tool_schemas()` converts the registry to OpenAI function-calling format and is passed to the
+LLM on every request. If the LLM returns a tool call, `main.py` routes it through the trust gate.
+
+Only the first tool call per response is executed. Parallel tool calls from the LLM are silently
+dropped — one action per turn is the current design.
+
+Results are formatted locally by `_format_tool_result()` in `main.py`. No second LLM call is made
+after tool execution — this keeps per-query latency to exactly one API round-trip.

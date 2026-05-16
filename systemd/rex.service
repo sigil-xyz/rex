@@ -22,7 +22,7 @@ PassEnvironment=XDG_RUNTIME_DIR PIPEWIRE_RUNTIME_DIR PULSE_RUNTIME_PATH DBUS_SES
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%t %h/.cache/huggingface
+ReadWritePaths=%t %h/.cache/huggingface %h/.local/share/rex %h/Desktop %h/Documents %h/Downloads %h/Pictures %h/Videos %h/Music %h/.config/rex
 
 [Install]
 WantedBy=graphical-session.target
