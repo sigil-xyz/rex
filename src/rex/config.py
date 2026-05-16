@@ -2,6 +2,7 @@ import logging
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,22 @@ class ToolsConfig:
 
 
 @dataclass
+class OutputConfig:
+    mode: str = "auto"  # "auto" | "voice" | "text" | "notify-only"
+
+
+def resolve_output_mode(config_mode: str, input_was_voice: bool) -> Literal["voice", "text"]:
+    if config_mode == "voice":
+        return "voice"
+    if config_mode == "text":
+        return "text"
+    if config_mode == "notify-only":
+        return "text"
+    # auto
+    return "voice" if input_was_voice else "text"
+
+
+@dataclass
 class RexConfig:
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -78,6 +95,7 @@ class RexConfig:
     notification: NotificationConfig = field(default_factory=NotificationConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    output: OutputConfig = field(default_factory=OutputConfig)
     memory_db: str = ""  # empty = use DEFAULT_DB_PATH
 
 
@@ -154,6 +172,11 @@ def load_config(path: Path | None = None) -> RexConfig:
         ),
     )
 
+    output_data = data.get("output", {})
+    output = OutputConfig(
+        mode=output_data.get("mode", OutputConfig.mode),
+    )
+
     logger.debug("loaded config from %s", path)
     return RexConfig(
         daemon=daemon,
@@ -163,5 +186,6 @@ def load_config(path: Path | None = None) -> RexConfig:
         notification=notification,
         llm=llm,
         tools=tools,
+        output=output,
         memory_db=data.get("memory_db", ""),
     )

@@ -50,6 +50,8 @@ dev = [
 [project.scripts]
 rex         = "rex.daemon.main:run"
 rex-trigger = "rex.cli.trigger:main"
+rex-ask     = "rex.cli.ask:ask_main"
+rex-chat    = "rex.cli.ask:chat_main"
 
 [project.urls]
 Homepage  = "https://github.com/sigil-xyz/rex"

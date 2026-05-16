@@ -62,6 +62,21 @@ def _truncate(text: str) -> str:
     return text[:_TRUNCATE_AT] + f"\n[truncated — {len(text) - _TRUNCATE_AT} chars omitted]"
 
 
+_DEP_HINTS: dict[str, str] = {
+    "ddgr not found": "install: sudo pacman -S ddgr  (or: pip install ddgr)",
+    "wl-paste not found": "install: sudo pacman -S wl-clipboard",
+    "wl-copy not found": "install: sudo pacman -S wl-clipboard",
+}
+
+
+def format_tool_error(error: str) -> str:
+    """Append an install hint when the error matches a known missing dependency."""
+    for fragment, hint in _DEP_HINTS.items():
+        if fragment in error:
+            return f"{error}  ({hint})"
+    return error
+
+
 # --- tool implementations ---
 
 

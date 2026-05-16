@@ -109,3 +109,20 @@ additional dependencies.
 | `read_file`, `write_file` | none |
 
 Set `tools.enabled = false` to disable all tool use globally.
+
+---
+
+### `[output]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `mode` | string | `"auto"` | Response delivery mode — see table below |
+
+**Mode options:**
+
+| Value | Behaviour |
+|-------|-----------|
+| `"auto"` | Text when invoked via `rex-ask`/`rex-chat`, voice when PTT is used |
+| `"voice"` | Always use TTS (requires Piper) |
+| `"text"` | Always print to terminal |
+| `"notify-only"` | Desktop notification only; text CLI falls back to `"text"` |

@@ -118,12 +118,15 @@ src/rex/
 ├── config.py          — config.toml parsing, dataclasses, defaults
 ├── daemon/
 │   ├── main.py        — asyncio event loop, socket server, pipeline orchestration
+│   ├── pipeline.py    — shared LLM+tool pipeline used by daemon and CLI
 │   ├── audio.py       — sounddevice recording, start/stop, buffer management
 │   ├── stt.py         — backend detection, Transcriber class (Parakeet/mlx/faster-whisper)
 │   ├── llm.py         — OpenAI-compatible LLM client, Rex persona
+│   ├── tools.py       — tool registry, implementations, trust levels
 │   └── tts.py         — Piper subprocess, raw PCM playback via sounddevice
 └── cli/
-    └── trigger.py     — unix socket client, sends start/stop, exits immediately
+    ├── trigger.py     — unix socket client, sends start/stop, exits immediately
+    └── ask.py         — rex-ask (one-shot query) and rex-chat (REPL); no daemon required
 ```
 
 ---
