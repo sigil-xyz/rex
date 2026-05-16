@@ -24,11 +24,10 @@ No API. No memory. No tools. Just the loop.
 
 **Goal:** Replace the keyword engine with a real LLM.
 
-- [ ] Claude API integration (claude-haiku)
-- [ ] Persistent conversation memory (SQLite)
-- [ ] Goal tracking — Rex remembers what you're working on
-- [ ] Config: API key management via `~/.config/rex/api_key`
-- [ ] Streaming TTS — speak while response is generating
+- [x] Claude API integration (claude-haiku via OpenAI-compatible gateway)
+- [x] Persistent conversation memory (SQLite, configurable turn window)
+- [x] Config: API key and model management via `~/.config/rex/config.toml`
+- [x] Streaming TTS — speak while response is generating
 
 ---
 
@@ -36,13 +35,11 @@ No API. No memory. No tools. Just the loop.
 
 **Goal:** Rex can take actions, not just answer.
 
-- [ ] Tool interface design — sandboxed, explicit, auditable
-- [ ] File read/write tool
-- [ ] Shell command tool (with confirmation prompt)
-- [ ] Web search tool
-- [ ] Clipboard read/write
-
-Security model for tool use must be designed before implementation.
+- [x] Tool interface design — trust levels (read/write/execute), sandboxed, auditable
+- [x] File read/write tool
+- [x] Shell command tool (confirmation gate + blocklist)
+- [x] Web search tool (ddgr, no API key)
+- [x] Clipboard read/write (wl-paste / wl-copy)
 
 ---
 

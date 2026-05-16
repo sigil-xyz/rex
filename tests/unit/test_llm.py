@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rex.config import LlmConfig
-from rex.daemon.llm import respond, respond_streaming
+from rex.daemon.llm import respond, respond_streaming, respond_with_tool_result
+from rex.daemon.llm import ToolCallRequest
 
 
 def _config() -> LlmConfig:
@@ -84,6 +85,7 @@ async def test_streaming_yields_sentences(mock_openai: MagicMock) -> None:
             for text in chunks:
                 chunk = MagicMock()
                 chunk.choices[0].delta.content = text
+                chunk.choices[0].delta.tool_calls = None
                 yield chunk
 
         stream = MagicMock()
@@ -103,6 +105,66 @@ async def test_streaming_error_yields_fallback(mock_openai: MagicMock) -> None:
     )
     sentences = [s async for s in respond_streaming("hi", _config(), [])]
     assert sentences == ["Sorry, I couldn't process that."]
+
+
+@patch("rex.daemon.llm._client", None)
+@patch("rex.daemon.llm.AsyncOpenAI")
+async def test_respond_streaming_yields_tool_call_request(mock_openai: MagicMock) -> None:
+    def _tool_chunk(id: str | None, name: str | None, args: str) -> MagicMock:
+        tc = MagicMock()
+        tc.id = id
+        tc.index = 0
+        tc.function.name = name
+        tc.function.arguments = args
+        return tc
+
+    async def _fake_stream(*_a: object, **_kw: object) -> MagicMock:
+        chunks = [
+            (_tool_chunk("call_abc", "shell", '{"command":'), None),
+            (_tool_chunk(None, None, ' "ls"}'), None),
+        ]
+
+        async def _aiter(_self: object) -> object:
+            for tc, content in chunks:
+                chunk = MagicMock()
+                chunk.choices[0].delta.content = content
+                chunk.choices[0].delta.tool_calls = [tc] if tc is not None else None
+                yield chunk
+
+        stream = MagicMock()
+        stream.__aiter__ = _aiter
+        return stream
+
+    mock_openai.return_value.chat.completions.create = _fake_stream
+    items = [s async for s in respond_streaming("run ls", _config(), [])]
+    assert len(items) == 1
+    assert isinstance(items[0], ToolCallRequest)
+    assert items[0].name == "shell"
+    assert items[0].args == {"command": "ls"}
+    assert items[0].id == "call_abc"
+
+
+@patch("rex.daemon.llm._client", None)
+@patch("rex.daemon.llm.AsyncOpenAI")
+async def test_respond_with_tool_result_streams_sentences(mock_openai: MagicMock) -> None:
+    async def _fake_stream(*_a: object, **_kw: object) -> MagicMock:
+        chunks = ["The file has ", "three lines. ", "All look fine."]
+
+        async def _aiter(_self: object) -> object:
+            for text in chunks:
+                chunk = MagicMock()
+                chunk.choices[0].delta.content = text
+                yield chunk
+
+        stream = MagicMock()
+        stream.__aiter__ = _aiter
+        return stream
+
+    mock_openai.return_value.chat.completions.create = _fake_stream
+    tool_call = ToolCallRequest(id="call_xyz", name="read_file", args={"path": "/tmp/f.txt"})
+    msgs: list = [{"role": "user", "content": "read that file"}]
+    sentences = [s async for s in respond_with_tool_result(msgs, tool_call, "line1\nline2\nline3", _config())]
+    assert sentences == ["The file has three lines.", "All look fine."]
 
 
 @pytest.mark.parametrize(

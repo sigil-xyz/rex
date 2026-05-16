@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import platform
@@ -10,10 +11,14 @@ import numpy as np
 from rex.config import NotificationConfig, RexConfig, load_config
 from rex.daemon import llm, tts
 from rex.daemon.audio import AudioRecorder
-from rex.daemon.memory import DEFAULT_DB_PATH, get_history, init_db, save_turn
+from rex.daemon.llm import ToolCallRequest
+from rex.daemon.memory import DEFAULT_DB_PATH, get_history, init_db, save_tool_call, save_turn
 from rex.daemon.stt import Transcriber
+from rex.daemon.tools import REGISTRY, ToolResult
 
 logger = logging.getLogger(__name__)
+
+_CONFIRM_WORDS = {"yes", "confirm", "do it", "yeah", "yep", "sure", "ok", "okay"}
 
 
 def get_socket_path() -> Path:
@@ -26,7 +31,6 @@ async def _notify(text: str, config: NotificationConfig) -> None:
         return
 
     if platform.system() == "Darwin":
-        # macOS: osascript is always available, no extra deps
         script = f'display notification "{text}" with title "Rex"'
         proc = await asyncio.create_subprocess_exec(
             "osascript",
@@ -47,6 +51,46 @@ async def _notify(text: str, config: NotificationConfig) -> None:
     await proc.communicate()
 
 
+_SPEAK_LIMIT = 300
+
+
+def _format_tool_result(tool: ToolCallRequest, result: ToolResult) -> str:
+    if result.error:
+        return f"That didn't work: {result.error}"
+    text = result.output.strip()
+    match tool.name:
+        case "write_file":
+            return result.output
+        case "clipboard_write":
+            return "Done, copied to clipboard."
+        case "clipboard_read":
+            if not text:
+                return "The clipboard is empty."
+            clipped = text[:_SPEAK_LIMIT - 12]
+            return f"Clipboard: {clipped}" + ("…" if len(text) > _SPEAK_LIMIT - 12 else "")
+        case "shell":
+            if not text or text == "(no output)":
+                return "Command finished with no output."
+            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
+        case "web_search":
+            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
+        case _:  # read_file and future tools
+            if not text:
+                return "The file is empty."
+            return text[:_SPEAK_LIMIT] + ("…" if len(text) > _SPEAK_LIMIT else "")
+
+
+def _confirmation_prompt(tool: ToolCallRequest) -> str:
+    if tool.name == "shell":
+        return f"Run: {tool.args.get('command', '')}?"
+    if tool.name == "clipboard_write":
+        text = str(tool.args.get("text", ""))[:60]
+        return f"Copy to clipboard: {text}?"
+    if tool.name == "write_file":
+        return f"Write to {tool.args.get('path', 'file')}?"
+    return f"Use {tool.name}?"
+
+
 class RexDaemon:
     def __init__(
         self,
@@ -63,6 +107,11 @@ class RexDaemon:
         self._socket_path: Path | None = None
         db_path = config.memory_db or DEFAULT_DB_PATH
         self._db = init_db(db_path)
+
+        # tool confirmation state
+        self._pending_tool: ToolCallRequest | None = None
+        self._pending_turn_id: int = 0
+        self._confirmation_task: asyncio.Task[None] | None = None
 
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -96,6 +145,10 @@ class RexDaemon:
             logger.warning("already recording — ignoring start")
             return
         self._recording = True
+        # PTT press means the user is about to respond — cancel confirmation timeout
+        if self._confirmation_task is not None:
+            self._confirmation_task.cancel()
+            self._confirmation_task = None
         self._recorder.start()
         self._timeout_task = asyncio.create_task(self._recording_timeout())
         logger.info("recording started")
@@ -106,26 +159,38 @@ class RexDaemon:
             return
         self._recording = False
         if self._timeout_task is not None:
-            self._timeout_task.cancel()
+            # Don't cancel if _on_stop is already being called from inside the timeout task itself
+            if asyncio.current_task() is not self._timeout_task:
+                self._timeout_task.cancel()
             self._timeout_task = None
 
         audio: np.ndarray = self._recorder.stop()
 
         loop = asyncio.get_running_loop()
-        text: str = await loop.run_in_executor(
-            None,  # default ThreadPoolExecutor
-            self._transcriber.transcribe,
-            audio,
-        )
+        text: str = await loop.run_in_executor(None, self._transcriber.transcribe, audio)
         logger.info("transcribed: %s", text)
 
+        if self._pending_tool is not None:
+            await self._on_confirmation(text)
+        else:
+            await self._on_query(text)
+
+    async def _on_query(self, text: str) -> None:
         history = get_history(self._db, self._config.llm.memory_turns)
+        msgs = llm.build_messages(text, self._config.llm, history)
+
         sentence_queue: asyncio.Queue[str | None] = asyncio.Queue()
         response_parts: list[str] = []
+        tool_calls: list[ToolCallRequest] = []
 
         async def _generate() -> None:
-            async for sentence in llm.respond_streaming(text, self._config.llm, history):
-                await sentence_queue.put(sentence)
+            async for item in llm.respond_streaming_msgs(
+                msgs, self._config.llm, tools_enabled=self._config.tools.enabled
+            ):
+                if isinstance(item, ToolCallRequest):
+                    tool_calls.append(item)
+                else:
+                    await sentence_queue.put(item)
             await sentence_queue.put(None)
 
         async def _speak_loop() -> None:
@@ -138,11 +203,98 @@ class RexDaemon:
 
         await asyncio.gather(_generate(), _speak_loop())
 
-        response = " ".join(response_parts)
-        logger.info("response: %s", response)
-        save_turn(self._db, "user", text)
-        save_turn(self._db, "assistant", response)
-        await _notify(response, self._config.notification)
+        turn_id = save_turn(self._db, "user", text)
+
+        if tool_calls:
+            tool = tool_calls[0]
+            tool_def = REGISTRY.get(tool.name)
+            if tool_def and tool_def.trust == "read":
+                await self._run_tool(tool, turn_id)
+            else:
+                await self._ask_confirmation(tool, turn_id)
+        else:
+            response = " ".join(response_parts)
+            logger.info("response: %s", response)
+            save_turn(self._db, "assistant", response)
+            await _notify(response, self._config.notification)
+
+    async def _run_tool(
+        self,
+        tool: ToolCallRequest,
+        turn_id: int,
+    ) -> None:
+        tool_def = REGISTRY.get(tool.name)
+        if tool_def is None:
+            await tts.speak("I don't know how to do that.", self._config.tts)
+            return
+
+        try:
+            result = tool_def.run(tool.args)
+        except (KeyError, TypeError) as e:
+            logger.error("tool %s called with bad args %r: %s", tool.name, tool.args, e)
+            await tts.speak("Something went wrong running that tool.", self._config.tts)
+            return
+        result_text = result.output if result.error is None else f"Error: {result.error}"
+        logger.info("tool %s result: %s", tool.name, result_text[:120])
+
+        save_tool_call(
+            self._db, turn_id, tool.name, json.dumps(tool.args), result_text, "completed"
+        )
+
+        # Format and speak locally — no second LLM call
+        spoken = _format_tool_result(tool, result)
+        save_turn(self._db, "assistant", spoken)
+        await tts.speak(spoken, self._config.tts)
+        await _notify(spoken, self._config.notification)
+
+    async def _ask_confirmation(self, tool: ToolCallRequest, turn_id: int) -> None:
+        self._pending_tool = tool
+        self._pending_turn_id = turn_id
+
+        prompt = _confirmation_prompt(tool)
+        logger.info("asking confirmation: %s", prompt)
+        await tts.speak(prompt, self._config.tts)
+
+        self._confirmation_task = asyncio.create_task(self._confirmation_timeout())
+
+    async def _confirmation_timeout(self) -> None:
+        await asyncio.sleep(self._config.tools.confirmation_timeout)
+        if self._pending_tool is not None:
+            tool = self._pending_tool
+            turn_id = self._pending_turn_id
+            self._pending_tool = None
+            self._pending_turn_id = 0
+            self._confirmation_task = None
+            logger.info("confirmation timeout — cancelling %s", tool.name)
+            save_tool_call(
+                self._db, turn_id, tool.name, json.dumps(tool.args), None, "timeout"
+            )
+            await tts.speak("Cancelled.", self._config.tts)
+
+    async def _on_confirmation(self, text: str) -> None:
+        if self._confirmation_task is not None:
+            self._confirmation_task.cancel()
+            self._confirmation_task = None
+
+        tool = self._pending_tool
+        turn_id = self._pending_turn_id
+        self._pending_tool = None
+        self._pending_turn_id = 0
+
+        assert tool is not None
+
+        text_lower = text.lower()
+        confirmed = any(w in text_lower for w in _CONFIRM_WORDS)
+
+        if confirmed:
+            logger.info("confirmed — running %s", tool.name)
+            await self._run_tool(tool, turn_id)
+        else:
+            logger.info("cancelled by user — %s", tool.name)
+            save_tool_call(
+                self._db, turn_id, tool.name, json.dumps(tool.args), None, "cancelled"
+            )
+            await tts.speak("Cancelled.", self._config.tts)
 
     async def serve(self, socket_path: Path) -> None:
         if socket_path.exists():

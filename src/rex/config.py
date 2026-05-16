@@ -12,7 +12,10 @@ _DEFAULT_SYSTEM_PROMPT = (
     "If asked who made you, what you are, or what your name is, say you are Rex. "
     "Respond in plain spoken English only — no markdown, no bullet points, no headers, no code blocks. "
     "Be as brief as possible: one or two sentences for simple questions, three at most for complex ones. "
-    "Never pad answers with filler phrases like 'certainly', 'of course', or 'great question'."
+    "Never pad answers with filler phrases like 'certainly', 'of course', or 'great question'. "
+    "You have tools available: read_file, write_file, shell, clipboard_read, clipboard_write, web_search. "
+    "When the user asks you to read, write, run, or search something — call the appropriate tool immediately. "
+    "Never describe what you would do or why something might not work. Just call the tool and let the result speak."
 )
 
 
@@ -61,6 +64,12 @@ class NotificationConfig:
 
 
 @dataclass
+class ToolsConfig:
+    enabled: bool = True
+    confirmation_timeout: int = 30
+
+
+@dataclass
 class RexConfig:
     daemon: DaemonConfig = field(default_factory=DaemonConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
@@ -68,6 +77,7 @@ class RexConfig:
     tts: TtsConfig = field(default_factory=TtsConfig)
     notification: NotificationConfig = field(default_factory=NotificationConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
+    tools: ToolsConfig = field(default_factory=ToolsConfig)
     memory_db: str = ""  # empty = use DEFAULT_DB_PATH
 
 
@@ -126,6 +136,12 @@ def load_config(path: Path | None = None) -> RexConfig:
         timeout=notification_data.get("timeout", NotificationConfig.timeout),
     )
 
+    tools_data = data.get("tools", {})
+    tools = ToolsConfig(
+        enabled=tools_data.get("enabled", ToolsConfig.enabled),
+        confirmation_timeout=tools_data.get("confirmation_timeout", ToolsConfig.confirmation_timeout),
+    )
+
     logger.debug("loaded config from %s", path)
     return RexConfig(
         daemon=daemon,
@@ -134,5 +150,6 @@ def load_config(path: Path | None = None) -> RexConfig:
         tts=tts,
         notification=notification,
         llm=llm,
+        tools=tools,
         memory_db=data.get("memory_db", ""),
     )
