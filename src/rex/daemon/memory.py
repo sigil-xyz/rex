@@ -81,6 +81,4 @@ def get_recent_tool_calls(db: sqlite3.Connection, n: int) -> list[dict[str, Any]
     )
     rows = cursor.fetchall()
     rows.reverse()
-    return [
-        {"tool_name": r[0], "args": r[1], "result": r[2], "status": r[3]} for r in rows
-    ]
+    return [{"tool_name": r[0], "args": r[1], "result": r[2], "status": r[3]} for r in rows]

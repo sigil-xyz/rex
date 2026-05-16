@@ -3,8 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from rex.config import LlmConfig
-from rex.daemon.llm import respond, respond_streaming, respond_with_tool_result
-from rex.daemon.llm import ToolCallRequest
+from rex.daemon.llm import ToolCallRequest, respond, respond_streaming, respond_with_tool_result
 
 
 def _config() -> LlmConfig:
@@ -32,9 +31,7 @@ async def test_returns_llm_content(mock_openai: MagicMock) -> None:
 @patch("rex.daemon.llm._client", None)
 @patch("rex.daemon.llm.AsyncOpenAI")
 async def test_system_prompt_sent(mock_openai: MagicMock) -> None:
-    mock_openai.return_value.chat.completions.create = AsyncMock(
-        return_value=_mock_response("ok")
-    )
+    mock_openai.return_value.chat.completions.create = AsyncMock(return_value=_mock_response("ok"))
     cfg = _config()
     await respond("hello", cfg, [])
     call_kwargs = mock_openai.return_value.chat.completions.create.call_args
@@ -47,18 +44,14 @@ async def test_system_prompt_sent(mock_openai: MagicMock) -> None:
 @patch("rex.daemon.llm._client", None)
 @patch("rex.daemon.llm.AsyncOpenAI")
 async def test_empty_content_returns_empty_string(mock_openai: MagicMock) -> None:
-    mock_openai.return_value.chat.completions.create = AsyncMock(
-        return_value=_mock_response("")
-    )
+    mock_openai.return_value.chat.completions.create = AsyncMock(return_value=_mock_response(""))
     assert await respond("hi", _config(), []) == ""
 
 
 @patch("rex.daemon.llm._client", None)
 @patch("rex.daemon.llm.AsyncOpenAI")
 async def test_api_error_returns_fallback(mock_openai: MagicMock) -> None:
-    mock_openai.return_value.chat.completions.create = AsyncMock(
-        side_effect=Exception("timeout")
-    )
+    mock_openai.return_value.chat.completions.create = AsyncMock(side_effect=Exception("timeout"))
     result = await respond("hi", _config(), [])
     assert result == "Sorry, I couldn't process that."
 
@@ -66,9 +59,7 @@ async def test_api_error_returns_fallback(mock_openai: MagicMock) -> None:
 @patch("rex.daemon.llm._client", None)
 @patch("rex.daemon.llm.AsyncOpenAI")
 async def test_client_reused_across_calls(mock_openai: MagicMock) -> None:
-    mock_openai.return_value.chat.completions.create = AsyncMock(
-        return_value=_mock_response("ok")
-    )
+    mock_openai.return_value.chat.completions.create = AsyncMock(return_value=_mock_response("ok"))
     cfg = _config()
     await respond("first", cfg, [])
     await respond("second", cfg, [])
@@ -163,7 +154,9 @@ async def test_respond_with_tool_result_streams_sentences(mock_openai: MagicMock
     mock_openai.return_value.chat.completions.create = _fake_stream
     tool_call = ToolCallRequest(id="call_xyz", name="read_file", args={"path": "/tmp/f.txt"})
     msgs: list = [{"role": "user", "content": "read that file"}]
-    sentences = [s async for s in respond_with_tool_result(msgs, tool_call, "line1\nline2\nline3", _config())]
+    sentences = [
+        s async for s in respond_with_tool_result(msgs, tool_call, "line1\nline2\nline3", _config())
+    ]
     assert sentences == ["The file has three lines.", "All look fine."]
 
 
@@ -179,9 +172,7 @@ async def test_respond_with_tool_result_streams_sentences(mock_openai: MagicMock
 async def test_history_injected_between_system_and_user(
     mock_openai: MagicMock, history_roles: list[tuple[str, str]]
 ) -> None:
-    mock_openai.return_value.chat.completions.create = AsyncMock(
-        return_value=_mock_response("ok")
-    )
+    mock_openai.return_value.chat.completions.create = AsyncMock(return_value=_mock_response("ok"))
     history = [{"role": r, "content": c} for r, c in history_roles]
     await respond("new message", _config(), history)  # type: ignore[arg-type]
     messages = mock_openai.return_value.chat.completions.create.call_args.kwargs["messages"]

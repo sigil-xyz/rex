@@ -122,7 +122,9 @@ def _shell(args: dict[str, Any]) -> ToolResult:
     command: str = args["command"]
     for blocked in _SHELL_BLOCKLIST:
         if blocked in command:
-            return ToolResult(output="", error=f"Command rejected: contains blocked pattern '{blocked}'")
+            return ToolResult(
+                output="", error=f"Command rejected: contains blocked pattern '{blocked}'"
+            )
     try:
         result = subprocess.run(
             command,
@@ -186,81 +188,93 @@ def _web_search(args: dict[str, Any]) -> ToolResult:
 
 # --- registration ---
 
-register(ToolDef(
-    name="read_file",
-    description="Read the contents of a file on the user's machine. Only files within the home directory are accessible.",
-    trust="read",
-    parameters={
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Absolute or ~ path to the file"},
+register(
+    ToolDef(
+        name="read_file",
+        description="Read the contents of a file on the user's machine. Only files within the home directory are accessible.",
+        trust="read",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute or ~ path to the file"},
+            },
+            "required": ["path"],
         },
-        "required": ["path"],
-    },
-    run=_read_file,
-))
+        run=_read_file,
+    )
+)
 
-register(ToolDef(
-    name="write_file",
-    description="Write text content to a file on the user's machine. Creates the file and any parent directories if they don't exist. Only paths within the home directory are allowed.",
-    trust="write",
-    parameters={
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Absolute or ~ path to the file"},
-            "content": {"type": "string", "description": "Text content to write"},
+register(
+    ToolDef(
+        name="write_file",
+        description="Write text content to a file on the user's machine. Creates the file and any parent directories if they don't exist. Only paths within the home directory are allowed.",
+        trust="write",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute or ~ path to the file"},
+                "content": {"type": "string", "description": "Text content to write"},
+            },
+            "required": ["path", "content"],
         },
-        "required": ["path", "content"],
-    },
-    run=_write_file,
-))
+        run=_write_file,
+    )
+)
 
-register(ToolDef(
-    name="clipboard_read",
-    description="Read the current text content of the Wayland clipboard.",
-    trust="read",
-    parameters={"type": "object", "properties": {}, "required": []},
-    run=_clipboard_read,
-))
+register(
+    ToolDef(
+        name="clipboard_read",
+        description="Read the current text content of the Wayland clipboard.",
+        trust="read",
+        parameters={"type": "object", "properties": {}, "required": []},
+        run=_clipboard_read,
+    )
+)
 
-register(ToolDef(
-    name="clipboard_write",
-    description="Write text to the Wayland clipboard.",
-    trust="write",
-    parameters={
-        "type": "object",
-        "properties": {
-            "text": {"type": "string", "description": "Text to copy to clipboard"},
+register(
+    ToolDef(
+        name="clipboard_write",
+        description="Write text to the Wayland clipboard.",
+        trust="write",
+        parameters={
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Text to copy to clipboard"},
+            },
+            "required": ["text"],
         },
-        "required": ["text"],
-    },
-    run=_clipboard_write,
-))
+        run=_clipboard_write,
+    )
+)
 
-register(ToolDef(
-    name="shell",
-    description="Run a shell command and return its output. Dangerous commands are blocked.",
-    trust="execute",
-    parameters={
-        "type": "object",
-        "properties": {
-            "command": {"type": "string", "description": "Shell command to run"},
+register(
+    ToolDef(
+        name="shell",
+        description="Run a shell command and return its output. Dangerous commands are blocked.",
+        trust="execute",
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to run"},
+            },
+            "required": ["command"],
         },
-        "required": ["command"],
-    },
-    run=_shell,
-))
+        run=_shell,
+    )
+)
 
-register(ToolDef(
-    name="web_search",
-    description="Search the web via DuckDuckGo and return the top 5 results.",
-    trust="read",
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Search query"},
+register(
+    ToolDef(
+        name="web_search",
+        description="Search the web via DuckDuckGo and return the top 5 results.",
+        trust="read",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+            },
+            "required": ["query"],
         },
-        "required": ["query"],
-    },
-    run=_web_search,
-))
+        run=_web_search,
+    )
+)

@@ -246,7 +246,12 @@ def test_write_file_overwrites_existing(tmp_path: Path) -> None:
 
 def test_registry_has_all_tools() -> None:
     assert set(REGISTRY.keys()) == {
-        "read_file", "write_file", "clipboard_read", "clipboard_write", "shell", "web_search"
+        "read_file",
+        "write_file",
+        "clipboard_read",
+        "clipboard_write",
+        "shell",
+        "web_search",
     }
 
 

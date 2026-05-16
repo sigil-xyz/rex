@@ -139,7 +139,9 @@ def load_config(path: Path | None = None) -> RexConfig:
     tools_data = data.get("tools", {})
     tools = ToolsConfig(
         enabled=tools_data.get("enabled", ToolsConfig.enabled),
-        confirmation_timeout=tools_data.get("confirmation_timeout", ToolsConfig.confirmation_timeout),
+        confirmation_timeout=tools_data.get(
+            "confirmation_timeout", ToolsConfig.confirmation_timeout
+        ),
     )
 
     logger.debug("loaded config from %s", path)

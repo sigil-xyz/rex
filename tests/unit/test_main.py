@@ -68,6 +68,7 @@ def _make_daemon() -> RexDaemon:
 
 # --- confirmation prompt ---
 
+
 def test_confirmation_prompt_shell() -> None:
     tool = ToolCallRequest(id="c1", name="shell", args={"command": "ls -la"})
     assert _confirmation_prompt(tool) == "Run: ls -la?"
@@ -85,6 +86,7 @@ def test_confirmation_prompt_generic() -> None:
 
 
 # --- dispatch & basic state ---
+
 
 @pytest.mark.asyncio
 async def test_dispatch_unknown_command_logs_warning() -> None:
@@ -138,6 +140,7 @@ async def test_on_stop_runs_pipeline() -> None:
 
 # --- read tool: immediate execution ---
 
+
 @pytest.mark.asyncio
 async def test_on_query_read_tool_runs_immediately() -> None:
     daemon = _make_daemon()
@@ -170,6 +173,7 @@ async def test_on_query_read_tool_runs_immediately() -> None:
 
 
 # --- write/execute tool: confirmation gate ---
+
 
 @pytest.mark.asyncio
 async def test_on_query_write_tool_asks_confirmation() -> None:
@@ -205,6 +209,7 @@ async def test_on_query_write_tool_asks_confirmation() -> None:
 
 # --- confirmation: yes → runs tool ---
 
+
 @pytest.mark.asyncio
 async def test_on_confirmation_yes_runs_tool() -> None:
     daemon = _make_daemon()
@@ -230,6 +235,7 @@ async def test_on_confirmation_yes_runs_tool() -> None:
 
 # --- confirmation: no → cancels ---
 
+
 @pytest.mark.asyncio
 async def test_on_confirmation_no_cancels() -> None:
     daemon = _make_daemon()
@@ -246,6 +252,7 @@ async def test_on_confirmation_no_cancels() -> None:
 
 
 # --- confirmation timeout ---
+
 
 @pytest.mark.asyncio
 async def test_confirmation_timeout_cancels() -> None:
@@ -266,6 +273,7 @@ async def test_confirmation_timeout_cancels() -> None:
 
 
 # --- shutdown ---
+
 
 @pytest.mark.asyncio
 async def test_shutdown_removes_socket(tmp_path: Path) -> None:

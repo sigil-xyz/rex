@@ -66,7 +66,7 @@ def _format_tool_result(tool: ToolCallRequest, result: ToolResult) -> str:
         case "clipboard_read":
             if not text:
                 return "The clipboard is empty."
-            clipped = text[:_SPEAK_LIMIT - 12]
+            clipped = text[: _SPEAK_LIMIT - 12]
             return f"Clipboard: {clipped}" + ("…" if len(text) > _SPEAK_LIMIT - 12 else "")
         case "shell":
             if not text or text == "(no output)":
@@ -266,9 +266,7 @@ class RexDaemon:
             self._pending_turn_id = 0
             self._confirmation_task = None
             logger.info("confirmation timeout — cancelling %s", tool.name)
-            save_tool_call(
-                self._db, turn_id, tool.name, json.dumps(tool.args), None, "timeout"
-            )
+            save_tool_call(self._db, turn_id, tool.name, json.dumps(tool.args), None, "timeout")
             await tts.speak("Cancelled.", self._config.tts)
 
     async def _on_confirmation(self, text: str) -> None:
@@ -291,9 +289,7 @@ class RexDaemon:
             await self._run_tool(tool, turn_id)
         else:
             logger.info("cancelled by user — %s", tool.name)
-            save_tool_call(
-                self._db, turn_id, tool.name, json.dumps(tool.args), None, "cancelled"
-            )
+            save_tool_call(self._db, turn_id, tool.name, json.dumps(tool.args), None, "cancelled")
             await tts.speak("Cancelled.", self._config.tts)
 
     async def serve(self, socket_path: Path) -> None:
