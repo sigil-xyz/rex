@@ -10,6 +10,8 @@ from rex.daemon.pipeline import (
     _confirmation_prompt,
     _format_tool_result,
     _load_project_context,
+    _run_tool_inline,
+    confirm_text,
     run_query,
 )
 from rex.daemon.tools import ToolResult
@@ -386,3 +388,141 @@ async def test_run_query_empty_facts_skips_facts_block() -> None:
 
     system_contents = " ".join(m["content"] for m in captured_msgs if m.get("role") == "system")
     assert "Facts about" not in system_contents
+
+
+# --- _format_tool_result: uncovered branches ---
+
+
+def test_format_tool_result_clipboard_read_with_content() -> None:
+    tool = ToolCallRequest(id="x", name="clipboard_read", args={})
+    result = ToolResult(output="some text")
+    assert "Clipboard: some text" in _format_tool_result(tool, result)
+
+
+def test_format_tool_result_clipboard_read_truncates_long_content() -> None:
+    tool = ToolCallRequest(id="x", name="clipboard_read", args={})
+    result = ToolResult(output="x" * 400)
+    formatted = _format_tool_result(tool, result)
+    assert formatted.endswith("…")
+
+
+def test_format_tool_result_web_search() -> None:
+    tool = ToolCallRequest(id="x", name="web_search", args={})
+    result = ToolResult(output="search results")
+    assert _format_tool_result(tool, result) == "search results"
+
+
+def test_format_tool_result_web_search_truncates() -> None:
+    tool = ToolCallRequest(id="x", name="web_search", args={})
+    result = ToolResult(output="y" * 400)
+    assert _format_tool_result(tool, result).endswith("…")
+
+
+# --- _confirmation_prompt: uncovered branch ---
+
+
+def test_confirmation_prompt_clipboard_write() -> None:
+    tool = ToolCallRequest(id="x", name="clipboard_write", args={"text": "hello"})
+    assert _confirmation_prompt(tool) == "Copy to clipboard: hello?"
+
+
+# --- _load_project_context: explicit path not found warning ---
+
+
+def test_load_project_context_explicit_path_missing_returns_none(tmp_path: Path) -> None:
+    result = _load_project_context(explicit_path=str(tmp_path / "nonexistent.md"))
+    assert result is None
+
+
+# --- confirm_text ---
+
+
+@pytest.mark.asyncio
+async def test_confirm_text_yes_returns_true() -> None:
+    with patch("builtins.input", return_value="y"):
+        result = await confirm_text("Do it?")
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_confirm_text_no_returns_false() -> None:
+    with patch("builtins.input", return_value="n"):
+        result = await confirm_text("Do it?")
+    assert result is False
+
+
+# --- _run_tool_inline: unknown tool ---
+
+
+@pytest.mark.asyncio
+async def test_run_tool_inline_unknown_tool_prints_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    tool_call = ToolCallRequest(id="t9", name="unknown_tool", args={})
+    turn_id = save_turn(db, "user", "do something")
+
+    with patch.dict("rex.daemon.pipeline.REGISTRY", {}):
+        await _run_tool_inline(tool_call, config, db, turn_id, "text")
+
+    captured = capsys.readouterr()
+    assert "don't know" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_run_tool_inline_unknown_tool_speaks_in_voice_mode() -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    tool_call = ToolCallRequest(id="t9b", name="unknown_tool", args={})
+    turn_id = save_turn(db, "user", "do something")
+
+    with (
+        patch.dict("rex.daemon.pipeline.REGISTRY", {}),
+        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock) as mock_speak,
+    ):
+        await _run_tool_inline(tool_call, config, db, turn_id, "voice")
+
+    mock_speak.assert_called_once()
+    assert "don't know" in mock_speak.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_run_tool_inline_bad_args_prints_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    tool_call = ToolCallRequest(id="t10", name="read_file", args={})
+    turn_id = save_turn(db, "user", "read it")
+
+    fake_tool = MagicMock()
+    fake_tool.trust = "read"
+    fake_tool.run.side_effect = KeyError("path")
+
+    with patch.dict("rex.daemon.pipeline.REGISTRY", {"read_file": fake_tool}):
+        await _run_tool_inline(tool_call, config, db, turn_id, "text")
+
+    captured = capsys.readouterr()
+    assert "went wrong" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_run_tool_inline_bad_args_speaks_in_voice_mode() -> None:
+    config = _make_config()
+    db = init_db(":memory:")
+    tool_call = ToolCallRequest(id="t10b", name="read_file", args={})
+    turn_id = save_turn(db, "user", "read it")
+
+    fake_tool = MagicMock()
+    fake_tool.trust = "read"
+    fake_tool.run.side_effect = TypeError("bad arg")
+
+    with (
+        patch.dict("rex.daemon.pipeline.REGISTRY", {"read_file": fake_tool}),
+        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock) as mock_speak,
+    ):
+        await _run_tool_inline(tool_call, config, db, turn_id, "voice")
+
+    mock_speak.assert_called_once()
+    assert "went wrong" in mock_speak.call_args[0][0]
