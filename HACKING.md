@@ -21,6 +21,21 @@ sudo pacman -S portaudio libsndfile   # Arch
 sudo apt install portaudio19-dev libsndfile1   # Debian / Ubuntu
 ```
 
+**Linux — indicator (optional)**
+
+The floating pill indicator requires GTK4 + gtk4-layer-shell. These are system packages and cannot
+be installed via pip, so the venv must be created with system site packages visible:
+
+```bash
+# Arch
+sudo pacman -S gtk4 gtk4-layer-shell python-gobject
+
+# Recreate venv to expose system packages (must match system Python version)
+uv venv --system-site-packages --python /usr/bin/python3 && uv sync
+```
+
+Skip this if you don't need the indicator — Rex works fine without it.
+
 **macOS**
 
 ```bash

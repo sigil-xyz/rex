@@ -1,6 +1,6 @@
 # Status
 
-Current version: **v0.0.1** — core pipeline implemented and partially working.
+Current version: **v0.5.0**
 
 ---
 
@@ -8,36 +8,43 @@ Current version: **v0.0.1** — core pipeline implemented and partially working.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Hotkey (Super+X) | Working | Hyprland `bindd`/`bindrd` push-to-talk |
+| Hotkey push-to-talk | Working | Hyprland `bind`/`bindrelease`, any compositor |
 | Unix socket IPC | Working | `$XDG_RUNTIME_DIR/rex.sock` |
-| Audio recording | Working | Built-in mic via PipeWire default source |
-| STT | Working | faster-whisper `tiny.en`, `vad_filter=False`, `no_speech_threshold=1.0` |
-| LLM (keyword engine) | Working | Matches: time, date, hello, help |
-| Desktop notification | Working | `notify-send` via `_notify()` |
+| Audio recording | Working | sounddevice, PipeWire default source |
+| STT — faster-whisper | Working | Auto-selected universal fallback |
+| STT — mlx-whisper | Working | Apple Silicon, auto-selected |
+| STT — Parakeet TDT | Working | NVIDIA ≥ 6 GB VRAM, auto-selected |
+| LLM integration | Working | Streaming, tool calling, any OpenAI-compatible endpoint |
+| Piper TTS | Working | Sentence-by-sentence streaming while LLM generates |
+| Speech preprocessing | Working | `clean_for_speech()` strips markdown/paths before Piper |
+| Tools — read/write/shell/clipboard/web | Working | Per-tool trust model, confirmation gate |
+| Conversation memory | Working | SQLite, configurable turn window |
+| Text input — `rex-ask` / `rex-chat` | Working | Shares memory with voice daemon |
+| Project facts — `rex-remember` | Working | Persistent across restarts, injected into every prompt |
+| Project context | Working | `.rex/context.md` auto-loaded from working directory |
+| Tool call history in context | Working | Recent tool calls injected into LLM prompt |
+| Floating pill indicator | Working | GTK4 + gtk4-layer-shell, Wayland only |
+| Desktop notification | Working | `notify-send` (Linux), `osascript` (macOS) |
 | systemd user service | Working | `~/.config/systemd/user/rex.service` |
-| CI | Passing | Lint, type check, tests (88% coverage), typos |
 
-## What is broken
+## Known issues
 
-| Component | Status | Issue |
-|-----------|--------|-------|
-| TTS audio playback | Broken | `aplay` exits 0 from service but produces no sound — see open issue |
+- **Bluetooth A2DP clipping** — First syllable of TTS responses may be clipped when the audio
+  sink was suspended. `pactl suspend-sink @DEFAULT_SINK@ 0` runs at daemon start to mitigate.
+  Does not occur with wired audio.
 
-## Open issues
+- **Indicator on non-wlroots compositors** — The floating pill requires a Wayland compositor
+  with layer-shell support (Hyprland, Sway, river, etc.). KDE Plasma and GNOME have partial
+  support; behaviour may differ. X11 is not supported.
 
-- **TTS audio clipping** — First syllable of each response is clipped due to Bluetooth A2DP re-connection delay. `pactl suspend-sink` and silence prefix both tried. Deferred to v0.1 — needs a persistent audio stream or sink keep-alive strategy.
+- **`rex-indicator` requires system Python** — `python-gobject` is a system package not
+  available via pip. The venv must be created with `--system-site-packages` pointing at the
+  system Python. See [HACKING.md](HACKING.md) for setup.
 
-- **Bluetooth HFP mic (SCO link)** — `bluez_input` shows RUNNING in PipeWire but delivers no audio frames when the SCO voice link is not active. Workaround: use built-in mic as default source (`pactl set-default-source alsa_input...`). Bluetooth A2DP works for playback.
+## Next: v0.5 remaining / v0.6
 
-- **Whisper hallucinations on silence** — with `no_speech_threshold=1.0`, whisper transcribes silence as dots or garbage. Need a minimum-energy gate before passing audio to STT.
+- `rex status` — current state, active project, last query, uptime
+- `rex doctor` — checks every dep, config key, file path; pass/fail + fix
+- First-run wizard — no manual config editing for the common case
 
----
-
-## Next: v0.1 — Intelligence
-
-See [docs/roadmap.md](docs/roadmap.md) for full plan.
-
-- Replace keyword engine with Claude API (`claude-haiku`)
-- SQLite conversation memory
-- Streaming TTS — speak while response is generating
-- Config: `[llm]` section with `model` and `api_key`
+See [docs/roadmap.md](docs/roadmap.md) for the full plan.
