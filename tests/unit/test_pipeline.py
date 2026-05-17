@@ -3,8 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import sqlite3
-
 from rex.config import RexConfig
 from rex.daemon.llm import ToolCallRequest
 from rex.daemon.memory import init_db, save_fact, save_tool_call, save_turn

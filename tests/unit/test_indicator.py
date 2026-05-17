@@ -7,15 +7,15 @@ display and cannot be unit-tested in CI.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 import rex.cli.indicator as ind
-
 
 # ---------------------------------------------------------------------------
 # _socket_path
@@ -42,7 +42,9 @@ def test_send_returns_false_when_no_socket(tmp_path: Path, monkeypatch: pytest.M
     assert ind._send("show listening") is False
 
 
-def test_send_returns_true_over_live_socket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_send_returns_true_over_live_socket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     sock_path = tmp_path / "rex-indicator.sock"
 
@@ -145,10 +147,8 @@ async def test_async_show_sends_command(tmp_path: Path, monkeypatch: pytest.Monk
     await asyncio.sleep(0.05)
 
     server_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
         await server_task
-    except (asyncio.CancelledError, asyncio.TimeoutError):
-        pass
 
     assert any(b"show thinking" in msg for msg in received)
 
@@ -239,8 +239,6 @@ def test_auto_start_launches_subprocess() -> None:
 
 @pytest.mark.asyncio
 async def test_async_hide_sends_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    import asyncio
-
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     received: list[bytes] = []
 
@@ -265,9 +263,7 @@ async def test_async_hide_sends_command(tmp_path: Path, monkeypatch: pytest.Monk
     await asyncio.sleep(0.05)
 
     server_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
         await server_task
-    except (asyncio.CancelledError, asyncio.TimeoutError):
-        pass
 
     assert any(b"hide" in msg for msg in received)
