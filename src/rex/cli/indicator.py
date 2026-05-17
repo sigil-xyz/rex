@@ -66,9 +66,7 @@ def hide() -> bool:
 async def async_show(state: str) -> None:
     path = str(_socket_path())
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_unix_connection(path), timeout=0.05
-        )
+        _, writer = await asyncio.wait_for(asyncio.open_unix_connection(path), timeout=0.05)
         writer.write(f"show {state}\n".encode())
         await writer.drain()
         writer.close()
@@ -80,9 +78,7 @@ async def async_show(state: str) -> None:
 async def async_hide() -> None:
     path = str(_socket_path())
     try:
-        _, writer = await asyncio.wait_for(
-            asyncio.open_unix_connection(path), timeout=0.05
-        )
+        _, writer = await asyncio.wait_for(asyncio.open_unix_connection(path), timeout=0.05)
         writer.write(b"hide\n")
         await writer.drain()
         writer.close()
@@ -134,13 +130,13 @@ spinner {
 # (label, dot-css-class)  None dot-class → use spinner
 _STATES: dict[str, tuple[str, str | None]] = {
     "listening": ("Listening…", "dot-listening"),
-    "thinking":  ("Thinking…",  None),
-    "done":      ("Done",       "dot-done"),
-    "error":     ("Error",      "dot-error"),
+    "thinking": ("Thinking…", None),
+    "done": ("Done", "dot-done"),
+    "error": ("Error", "dot-error"),
 }
 
 _AUTO_DISMISS_MS: dict[str, int] = {
-    "done":  1500,
+    "done": 1500,
     "error": 3000,
 }
 
@@ -242,9 +238,7 @@ def _run_daemon() -> None:
                     monitor = monitors.get_item(0)
                     if monitor is not None:
                         h = monitor.get_geometry().height
-                        Gtk4LayerShell.set_margin(
-                            self, Gtk4LayerShell.Edge.TOP, int(h * 0.35)
-                        )
+                        Gtk4LayerShell.set_margin(self, Gtk4LayerShell.Edge.TOP, int(h * 0.35))
 
             # Input passthrough — empty cairo region means no pointer/touch events
             if _HAVE_CAIRO:
@@ -288,9 +282,7 @@ def _run_daemon() -> None:
             self.present()
 
             if state in _AUTO_DISMISS_MS:
-                self._dismiss_source = GLib.timeout_add(
-                    _AUTO_DISMISS_MS[state], self._auto_dismiss
-                )
+                self._dismiss_source = GLib.timeout_add(_AUTO_DISMISS_MS[state], self._auto_dismiss)
 
         def hide_pill(self) -> None:
             self._cancel_dismiss()
