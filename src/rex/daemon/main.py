@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+from rex.cli.indicator import async_show
 from rex.config import NotificationConfig, RexConfig, load_config, resolve_socket_path
 from rex.daemon import tts
 from rex.daemon.audio import AudioRecorder
@@ -122,6 +123,7 @@ class RexDaemon:
             self._confirmation_task = None
         self._recorder.start()
         self._timeout_task = asyncio.create_task(self._recording_timeout())
+        asyncio.create_task(async_show("listening"))
         logger.info("recording started")
 
     async def _on_stop(self) -> None:
@@ -136,6 +138,7 @@ class RexDaemon:
             self._timeout_task = None
 
         audio: np.ndarray = self._recorder.stop()
+        asyncio.create_task(async_show("thinking"))
 
         loop = asyncio.get_running_loop()
         text: str = await loop.run_in_executor(None, self._transcriber.transcribe, audio)
@@ -150,14 +153,21 @@ class RexDaemon:
         async def _on_notify(response: str) -> None:
             await _notify(response, self._config.notification)
 
-        await run_query(
-            text,
-            self._config,
-            self._db,
-            output_mode="voice",
-            on_write_tool=self._ask_confirmation,
-            on_notify=_on_notify,
-        )
+        try:
+            await run_query(
+                text,
+                self._config,
+                self._db,
+                output_mode="voice",
+                on_write_tool=self._ask_confirmation,
+                on_notify=_on_notify,
+            )
+        except Exception as e:
+            logger.error("query failed: %s", e)
+            asyncio.create_task(async_show("error"))
+            return
+
+        asyncio.create_task(async_show("done"))
 
     async def _run_tool(
         self,
