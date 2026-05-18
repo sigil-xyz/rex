@@ -67,10 +67,10 @@ class DaemonConfig:
 @dataclass
 class VadConfig:
     onset_rms_threshold: float = 0.01  # RMS energy floor per 20ms frame to count as speech
-    onset_frames: int = 5              # consecutive speech frames required to confirm onset
-    silence_frames: int = 30           # consecutive silence frames to trigger end-of-speech
-    onset_timeout: float = 8.0         # seconds to wait for onset before discarding
-    max_recording: float = 10.0        # hard cap on recording duration after onset
+    onset_frames: int = 5  # consecutive speech frames required to confirm onset
+    silence_frames: int = 30  # consecutive silence frames to trigger end-of-speech
+    onset_timeout: float = 8.0  # seconds to wait for onset before discarding
+    max_recording: float = 10.0  # hard cap on recording duration after onset
 
 
 @dataclass
