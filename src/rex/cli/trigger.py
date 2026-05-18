@@ -25,8 +25,8 @@ async def socket_connection(command: str) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) != 2 or sys.argv[1] not in ("start", "stop"):
-        print("usage: rex-trigger <start|stop>", file=sys.stderr)
+    if len(sys.argv) != 2 or sys.argv[1] not in ("start", "stop", "toggle"):
+        print("usage: rex-trigger <start|stop|toggle>", file=sys.stderr)
         sys.exit(1)
     command = sys.argv[1]
     try:
