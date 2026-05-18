@@ -6,6 +6,7 @@ import platform
 import signal
 from pathlib import Path
 
+from rex.cli.indicator import async_show
 from rex.config import NotificationConfig, RexConfig, load_config, resolve_socket_path
 from rex.daemon import tts
 from rex.daemon.audio import SpeechSession
@@ -113,6 +114,7 @@ class RexDaemon:
         if self._confirmation_task is not None:
             self._confirmation_task.cancel()
             self._confirmation_task = None
+        asyncio.create_task(async_show("listening"))
 
         self._session_task = asyncio.create_task(self._run_session())
         logger.info("session armed")
@@ -129,6 +131,7 @@ class RexDaemon:
         if audio is None or len(audio) == 0:
             logger.info("no audio captured — discarding")
             return
+        asyncio.create_task(async_show("thinking"))
 
         loop = asyncio.get_running_loop()
         text: str = await loop.run_in_executor(None, self._transcriber.transcribe, audio)
@@ -147,14 +150,21 @@ class RexDaemon:
         async def _on_notify(response: str) -> None:
             await _notify(response, self._config.notification)
 
-        await run_query(
-            text,
-            self._config,
-            self._db,
-            output_mode="voice",
-            on_write_tool=self._ask_confirmation,
-            on_notify=_on_notify,
-        )
+        try:
+            await run_query(
+                text,
+                self._config,
+                self._db,
+                output_mode="voice",
+                on_write_tool=self._ask_confirmation,
+                on_notify=_on_notify,
+            )
+        except Exception as e:
+            logger.error("query failed: %s", e)
+            asyncio.create_task(async_show("error"))
+            return
+
+        asyncio.create_task(async_show("done"))
 
     async def _run_tool(self, tool: ToolCallRequest, turn_id: int) -> None:
         tool_def = REGISTRY.get(tool.name)

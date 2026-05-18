@@ -177,9 +177,42 @@ Ambient noise, accidental triggers, and silence produce no output.
 
 ## Planned
 
-### v0.7.0 — First-Time Experience
+### v0.3 — Text Input
 
-> _A user who has never heard of Rex is working in under 10 minutes._
+> _Rex works without voice. The input method stops being a constraint._
+
+- [x] `rex-ask "your question"` — one-shot CLI query, responds in terminal
+- [x] `rex-chat` — persistent interactive terminal session
+- [x] Output auto-detects from input method
+      _(voice in → voice out, text in → text out)_
+- [x] `[output].mode` config key: `auto` / `voice` / `text` / `notify-only`
+- [x] Dependency errors spoken or printed clearly, never silenced
+- [x] Same memory, same tools, same project context regardless of input
+
+**What became possible:** Rex is usable in every situation.
+The assistant doesn't change. Only the interface does.
+
+---
+
+### v0.4 — Project Memory
+
+> _Rex remembers what you are working on. Context survives restarts._
+
+- [x] `facts` table — persistent user facts saved across sessions via `rex-remember`
+- [x] `rex-remember` CLI — save, list, forget facts by index
+- [x] Project context — `.rex/context.md` auto-injected from the working directory
+- [x] `tool_calls` history injected into LLM context (name, args, result, status)
+- [x] `MemoryConfig` — `[memory]` config section with `recent_tool_calls` and
+      `project_context_path`
+
+**What became possible:** Rex accumulates knowledge about you and your project.
+Session 100 is meaningfully different from session 1.
+
+---
+
+### v0.5 — Voice Quality & Presence
+
+> _Rex sounds like a colleague, not a document reader. You know when it's listening._
 
 No manual config editing for the common case.
 No silent failures. No reading docs before anything works.
@@ -189,11 +222,15 @@ No silent failures. No reading docs before anything works.
 - [ ] API key validated live — _"Testing connection... ✓"_
 - [ ] Explicit tool opt-in with plain-English explanation per tool
 - [ ] Missing dependency shown with distro-specific install command
+- [x] Floating pill indicator — GTK4 + gtk4-layer-shell, Tokyo Night theme, Wayland
+      (`listening` / `thinking` / `done` / `error` states, auto-dismiss, click-through)
+- [x] `tts.clean_for_speech()` — strips markdown, rewrites paths and units before Piper
+- [x] Rewritten system prompt — 2–3 sentence limit, contractions, no markdown, dry tone
 - [ ] `rex status` — current state, active project, last query, uptime
 - [ ] `rex doctor` — checks every dep, config key, file path; pass/fail + fix
-- [ ] `rex logs` — tails journal, Rex-only filter, human-readable
+- [ ] First-run wizard _(no `config.toml` detected)_
 
-**What becomes possible:** Rex is ready for users who are not its author.
+**What becomes possible:** Rex feels present and intentional, not robotic.
 
 ---
 

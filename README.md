@@ -97,7 +97,14 @@ One daemon. One asyncio process. Under 30 MB idle. Starts on login.
 **Memory**
 
 - Conversation history persists across sessions (SQLite, local)
-- _(coming in v0.4)_ Project context — Rex remembers what you're building
+- `rex-remember "..."` — save persistent facts Rex injects into every prompt
+- Project context — place `.rex/context.md` in any project directory; Rex reads it automatically
+
+**Indicator**
+
+- Floating pill overlay on Wayland (GTK4 + gtk4-layer-shell): Listening / Thinking / Done / Error
+- Tokyo Night theme, anchored top-centre, fully click-through
+- Auto-starts on first use, controlled via `rex-indicator show <state>`
 
 **Output**
 
@@ -192,11 +199,14 @@ Rex is in **early development**. This table reflects what actually works right n
 | Piper TTS voice output                    | ✅ Working |
 | Tools — file, shell, web, clipboard       | ✅ Working |
 | Conversation memory — SQLite, local       | ✅ Working |
-| Text input — `rex ask` / `rex chat`       | ✅ Working |
-| Project memory and goal tracking          | 🔜 v0.4    |
-| First-run wizard                          | 🔜 v0.5    |
-| Project scaffolding                       | 🔜 v0.6    |
-| Context awareness — editor, git, window   | 🔜 v0.7    |
+| Text input — `rex-ask` / `rex-chat`       | ✅ Working |
+| Project memory — facts, context injection | ✅ Working |
+| `rex-remember` — persistent user facts    | ✅ Working |
+| Floating pill indicator (GTK4, Wayland)   | ✅ Working |
+| Speech preprocessing — no markdown to TTS | ✅ Working |
+| First-run wizard                          | 🔜 v0.6    |
+| Project scaffolding                       | 🔜 v0.7    |
+| Context awareness — editor, git, window   | 🔜 v0.8    |
 | AUR / Homebrew package                    | 🔜 v1.0    |
 
 The core is solid. What's missing is depth, polish, and reach. That's the roadmap.
