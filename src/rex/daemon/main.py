@@ -6,12 +6,10 @@ import platform
 import signal
 from pathlib import Path
 
-import numpy as np
-
 from rex.cli.indicator import async_show
 from rex.config import NotificationConfig, RexConfig, load_config, resolve_socket_path
 from rex.daemon import tts
-from rex.daemon.audio import AudioRecorder
+from rex.daemon.audio import SpeechSession
 from rex.daemon.llm import ToolCallRequest
 from rex.daemon.memory import DEFAULT_DB_PATH, init_db, save_tool_call, save_turn
 from rex.daemon.pipeline import _format_tool_result, run_query
@@ -21,10 +19,15 @@ from rex.daemon.tools import REGISTRY
 logger = logging.getLogger(__name__)
 
 _CONFIRM_WORDS = {"yes", "confirm", "do it", "yeah", "yep", "sure", "ok", "okay"}
+_MIN_WORDS = 3
 
 
 def get_socket_path() -> Path:
     return resolve_socket_path()
+
+
+def _is_valid_transcription(text: str) -> bool:
+    return len(text.split()) >= _MIN_WORDS
 
 
 async def _notify(text: str, config: NotificationConfig) -> None:
@@ -64,17 +67,11 @@ def _confirmation_prompt(tool: ToolCallRequest) -> str:
 
 
 class RexDaemon:
-    def __init__(
-        self,
-        config: RexConfig,
-        recorder: AudioRecorder,
-        transcriber: Transcriber,
-    ) -> None:
+    def __init__(self, config: RexConfig, transcriber: Transcriber) -> None:
         self._config = config
-        self._recorder = recorder
         self._transcriber = transcriber
-        self._recording: bool = False
-        self._timeout_task: asyncio.Task[None] | None = None
+        self._session: SpeechSession | None = None
+        self._session_task: asyncio.Task[None] | None = None
         self._server: asyncio.Server | None = None
         self._socket_path: Path | None = None
         db_path = config.memory_db or DEFAULT_DB_PATH
@@ -99,50 +96,50 @@ class RexDaemon:
 
     async def _dispatch(self, command: str) -> None:
         match command:
-            case "start":
-                await self._on_start()
+            case "toggle" | "start":
+                await self._on_toggle()
             case "stop":
-                await self._on_stop()
+                if self._session is not None:
+                    self._session.request_stop()
             case _:
                 logger.warning("unknown command: %r", command)
 
-    async def _recording_timeout(self) -> None:
-        timeout = self._config.daemon.recording_timeout
-        await asyncio.sleep(timeout)
-        logger.warning("recording timeout (%ds) — forcing stop", timeout)
-        await self._on_stop()
-
-    async def _on_start(self) -> None:
-        if self._recording:
-            logger.warning("already recording — ignoring start")
+    async def _on_toggle(self) -> None:
+        if self._session_task is not None:
+            if self._session is not None:
+                self._session.request_stop()
+            logger.info("session stop requested via toggle")
             return
-        self._recording = True
-        # PTT press means the user is about to respond — cancel confirmation timeout
+
         if self._confirmation_task is not None:
             self._confirmation_task.cancel()
             self._confirmation_task = None
-        self._recorder.start()
-        self._timeout_task = asyncio.create_task(self._recording_timeout())
         asyncio.create_task(async_show("listening"))
-        logger.info("recording started")
 
-    async def _on_stop(self) -> None:
-        if not self._recording:
-            logger.warning("not recording — ignoring stop")
+        self._session_task = asyncio.create_task(self._run_session())
+        logger.info("session armed")
+
+    async def _run_session(self) -> None:
+        session = SpeechSession(self._config.audio, self._config.vad)
+        self._session = session
+        try:
+            audio = await session.run()
+        finally:
+            self._session = None
+            self._session_task = None
+
+        if audio is None or len(audio) == 0:
+            logger.info("no audio captured — discarding")
             return
-        self._recording = False
-        if self._timeout_task is not None:
-            # Don't cancel if _on_stop is already being called from inside the timeout task itself
-            if asyncio.current_task() is not self._timeout_task:
-                self._timeout_task.cancel()
-            self._timeout_task = None
-
-        audio: np.ndarray = self._recorder.stop()
         asyncio.create_task(async_show("thinking"))
 
         loop = asyncio.get_running_loop()
         text: str = await loop.run_in_executor(None, self._transcriber.transcribe, audio)
-        logger.info("transcribed: %s", text)
+        logger.info("transcribed: %r", text)
+
+        if not _is_valid_transcription(text):
+            logger.info("confidence gate — discarding %r", text)
+            return
 
         if self._pending_tool is not None:
             await self._on_confirmation(text)
@@ -169,11 +166,7 @@ class RexDaemon:
 
         asyncio.create_task(async_show("done"))
 
-    async def _run_tool(
-        self,
-        tool: ToolCallRequest,
-        turn_id: int,
-    ) -> None:
+    async def _run_tool(self, tool: ToolCallRequest, turn_id: int) -> None:
         tool_def = REGISTRY.get(tool.name)
         if tool_def is None:
             await tts.speak("I don't know how to do that.", self._config.tts)
@@ -192,7 +185,6 @@ class RexDaemon:
             self._db, turn_id, tool.name, json.dumps(tool.args), result_text, "completed"
         )
 
-        # Format and speak locally — no second LLM call
         spoken = _format_tool_result(tool, result)
         save_turn(self._db, "assistant", spoken)
         await tts.speak(spoken, self._config.tts)
@@ -256,6 +248,9 @@ class RexDaemon:
             await self._server.serve_forever()
 
     async def shutdown(self) -> None:
+        if self._session is not None:
+            self._session.request_stop()
+
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -268,19 +263,16 @@ class RexDaemon:
 async def _main() -> None:
     config = load_config()
 
-    recorder = AudioRecorder(config.audio)
     transcriber = Transcriber(config.stt)
     transcriber.load()  # blocks briefly — loads whisper model from disk
 
-    daemon = RexDaemon(config, recorder, transcriber)
+    daemon = RexDaemon(config, transcriber)
     socket_path = resolve_socket_path(config.daemon.socket_path)
 
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(daemon.shutdown()))
     loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(daemon.shutdown()))
 
-    # Prevent PipeWire from suspending the audio sink — avoids Bluetooth A2DP
-    # re-connection delay that clips the start of TTS responses (Linux/PipeWire only)
     if platform.system() == "Linux":
         proc = await asyncio.create_subprocess_exec(
             "pactl",

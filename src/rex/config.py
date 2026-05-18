@@ -61,7 +61,16 @@ class SttConfig:
 class DaemonConfig:
     socket_path: str = ""
     log_level: str = "info"
-    recording_timeout: int = 30
+    recording_timeout: int = 10
+
+
+@dataclass
+class VadConfig:
+    onset_rms_threshold: float = 0.01  # RMS energy floor per 20ms frame to count as speech
+    onset_frames: int = 5  # consecutive speech frames required to confirm onset
+    silence_frames: int = 30  # consecutive silence frames to trigger end-of-speech
+    onset_timeout: float = 8.0  # seconds to wait for onset before discarding
+    max_recording: float = 10.0  # hard cap on recording duration after onset
 
 
 @dataclass
@@ -123,6 +132,7 @@ class RexConfig:
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    vad: VadConfig = field(default_factory=VadConfig)
     memory_db: str = ""  # empty = use DEFAULT_DB_PATH
 
 
@@ -212,6 +222,15 @@ def load_config(path: Path | None = None) -> RexConfig:
         ),
     )
 
+    vad_data = data.get("vad", {})
+    vad = VadConfig(
+        onset_rms_threshold=vad_data.get("onset_rms_threshold", VadConfig.onset_rms_threshold),
+        onset_frames=vad_data.get("onset_frames", VadConfig.onset_frames),
+        silence_frames=vad_data.get("silence_frames", VadConfig.silence_frames),
+        onset_timeout=vad_data.get("onset_timeout", VadConfig.onset_timeout),
+        max_recording=vad_data.get("max_recording", VadConfig.max_recording),
+    )
+
     logger.debug("loaded config from %s", path)
     return RexConfig(
         daemon=daemon,
@@ -223,5 +242,6 @@ def load_config(path: Path | None = None) -> RexConfig:
         tools=tools,
         output=output,
         memory=memory,
+        vad=vad,
         memory_db=data.get("memory_db", ""),
     )

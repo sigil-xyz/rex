@@ -6,9 +6,14 @@ import numpy as np
 import pytest
 
 from rex.config import NotificationConfig, RexConfig
-from rex.daemon.audio import AudioRecorder
 from rex.daemon.llm import ToolCallRequest
-from rex.daemon.main import RexDaemon, _confirmation_prompt, _notify, get_socket_path
+from rex.daemon.main import (
+    RexDaemon,
+    _confirmation_prompt,
+    _is_valid_transcription,
+    _notify,
+    get_socket_path,
+)
 from rex.daemon.stt import Transcriber
 from rex.daemon.tools import ToolResult
 
@@ -62,9 +67,21 @@ async def test_notify_calls_osascript_on_macos() -> None:
 def _make_daemon() -> RexDaemon:
     config = RexConfig()
     config.memory_db = ":memory:"
-    recorder = MagicMock(spec=AudioRecorder)
     transcriber = MagicMock(spec=Transcriber)
-    return RexDaemon(config, recorder, transcriber)
+    return RexDaemon(config, transcriber)
+
+
+# --- confidence gate ---
+
+
+def test_is_valid_transcription_passes_three_words() -> None:
+    assert _is_valid_transcription("what time is it") is True
+
+
+def test_is_valid_transcription_rejects_short() -> None:
+    assert _is_valid_transcription("hey") is False
+    assert _is_valid_transcription("um yeah") is False
+    assert _is_valid_transcription("") is False
 
 
 # --- confirmation prompt ---
@@ -86,7 +103,7 @@ def test_confirmation_prompt_generic() -> None:
     assert "web_search" in _confirmation_prompt(tool)
 
 
-# --- dispatch & basic state ---
+# --- dispatch ---
 
 
 @pytest.mark.asyncio
@@ -95,48 +112,108 @@ async def test_dispatch_unknown_command_logs_warning() -> None:
     await daemon._dispatch("unknown")
 
 
-@pytest.mark.asyncio
-async def test_on_start_sets_recording() -> None:
-    daemon = _make_daemon()
-    await daemon._on_start()
-    assert daemon._recording is True
-    daemon._recorder.start.assert_called_once()
+# --- toggle ---
 
 
 @pytest.mark.asyncio
-async def test_on_start_ignores_duplicate() -> None:
+async def test_on_toggle_creates_session_task() -> None:
     daemon = _make_daemon()
-    await daemon._on_start()
-    await daemon._on_start()
-    daemon._recorder.start.assert_called_once()
+    barrier = asyncio.Event()
+
+    async def _blocked_session() -> None:
+        await barrier.wait()
+
+    daemon._run_session = _blocked_session  # type: ignore[method-assign]
+    await daemon._on_toggle()
+    await asyncio.sleep(0)  # let task start
+    assert daemon._session_task is not None
+
+    barrier.set()
+    if daemon._session_task:
+        await daemon._session_task
 
 
 @pytest.mark.asyncio
-async def test_on_stop_ignored_when_not_recording() -> None:
+async def test_on_toggle_while_active_requests_stop() -> None:
     daemon = _make_daemon()
-    await daemon._on_stop()
-    daemon._recorder.stop.assert_not_called()
+    started = asyncio.Event()
+    barrier = asyncio.Event()
+
+    async def _slow_session() -> None:
+        started.set()
+        await barrier.wait()
+
+    daemon._run_session = _slow_session  # type: ignore[method-assign]
+    await daemon._on_toggle()
+    await asyncio.sleep(0)
+
+    # Arm a fake session so request_stop can be checked
+    fake_session = MagicMock()
+    daemon._session = fake_session
+
+    await started.wait()
+    await daemon._on_toggle()  # second toggle — should stop
+    fake_session.request_stop.assert_called_once()
+
+    barrier.set()
+    if daemon._session_task:
+        await daemon._session_task
+
+
+# --- _run_session pipeline ---
 
 
 @pytest.mark.asyncio
-async def test_on_stop_runs_pipeline() -> None:
+async def test_run_session_runs_pipeline() -> None:
     daemon = _make_daemon()
-    daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
-    daemon._transcriber.transcribe.return_value = "hello"
+    daemon._transcriber.transcribe.return_value = "hello there world"
+    fake_audio = np.zeros(16000, dtype=np.float32)
 
-    async def _fake_stream(*_a, **_kw):
+    async def _fake_stream(*_a: object, **_kw: object) -> object:
         yield "Hello there."
 
-    await daemon._on_start()
+    with patch("rex.daemon.main.SpeechSession") as mock_sess_cls:
+        mock_sess = MagicMock()
+        mock_sess.run = AsyncMock(return_value=fake_audio)
+        mock_sess_cls.return_value = mock_sess
+        with (
+            patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
+            patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock),
+            patch("rex.daemon.main._notify", new_callable=AsyncMock),
+        ):
+            await daemon._run_session()
 
-    with (
-        patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
-        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock),
-        patch("rex.daemon.main._notify", new_callable=AsyncMock),
-    ):
-        await daemon._on_stop()
+    assert daemon._session is None
+    assert daemon._session_task is None
 
-    assert daemon._recording is False
+
+@pytest.mark.asyncio
+async def test_run_session_discards_no_audio() -> None:
+    daemon = _make_daemon()
+
+    with patch("rex.daemon.main.SpeechSession") as mock_sess_cls:
+        mock_sess = MagicMock()
+        mock_sess.run = AsyncMock(return_value=None)
+        mock_sess_cls.return_value = mock_sess
+        await daemon._run_session()
+
+    daemon._transcriber.transcribe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_session_discards_short_transcription() -> None:
+    daemon = _make_daemon()
+    daemon._transcriber.transcribe.return_value = "um"
+    fake_audio = np.zeros(16000, dtype=np.float32)
+
+    with patch("rex.daemon.main.SpeechSession") as mock_sess_cls:
+        mock_sess = MagicMock()
+        mock_sess.run = AsyncMock(return_value=fake_audio)
+        mock_sess_cls.return_value = mock_sess
+        with patch("rex.daemon.main.run_query", new_callable=AsyncMock) as mock_query:
+            await daemon._run_session()
+
+    mock_query.assert_not_called()
 
 
 # --- read tool: immediate execution ---
@@ -145,28 +222,23 @@ async def test_on_stop_runs_pipeline() -> None:
 @pytest.mark.asyncio
 async def test_on_query_read_tool_runs_immediately() -> None:
     daemon = _make_daemon()
-    daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
-    daemon._transcriber.transcribe.return_value = "read my file"
-
     tool_call = ToolCallRequest(id="c1", name="read_file", args={"path": "/tmp/x.txt"})
 
-    async def _fake_stream(*_a, **_kw):
+    async def _fake_stream(*_a: object, **_kw: object) -> object:
         yield tool_call
 
     fake_tool = MagicMock()
     fake_tool.trust = "read"
     fake_tool.run.return_value = ToolResult(output="file contents")
 
-    await daemon._on_start()
     with (
         patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
         patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock) as mock_speak,
         patch("rex.daemon.main._notify", new_callable=AsyncMock),
         patch.dict("rex.daemon.pipeline.REGISTRY", {"read_file": fake_tool}),
     ):
-        await daemon._on_stop()
+        await daemon._on_query("read my file")
 
-    # tool ran, result spoken locally — no second LLM call
     fake_tool.run.assert_called_once_with({"path": "/tmp/x.txt"})
     assert daemon._pending_tool is None
     spoken = [c.args[0] for c in mock_speak.call_args_list]
@@ -179,31 +251,25 @@ async def test_on_query_read_tool_runs_immediately() -> None:
 @pytest.mark.asyncio
 async def test_on_query_write_tool_asks_confirmation() -> None:
     daemon = _make_daemon()
-    daemon._recorder.stop.return_value = np.zeros(16000, dtype=np.float32)
-    daemon._transcriber.transcribe.return_value = "copy something"
-
     tool_call = ToolCallRequest(id="c2", name="clipboard_write", args={"text": "hello"})
 
-    async def _fake_stream(*_a, **_kw):
+    async def _fake_stream(*_a: object, **_kw: object) -> object:
         yield tool_call
 
     fake_tool = MagicMock()
     fake_tool.trust = "write"
 
-    await daemon._on_start()
     with (
         patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
         patch("rex.daemon.main.tts.speak", new_callable=AsyncMock) as mock_speak,
         patch.dict("rex.daemon.pipeline.REGISTRY", {"clipboard_write": fake_tool}),
     ):
-        await daemon._on_stop()
+        await daemon._on_query("copy something")
 
-    # confirmation prompt spoken, tool is pending
     assert daemon._pending_tool is tool_call
     spoken = [c.args[0] for c in mock_speak.call_args_list]
     assert any("clipboard" in s.lower() for s in spoken)
 
-    # clean up background timeout task
     if daemon._confirmation_task:
         daemon._confirmation_task.cancel()
 
@@ -290,66 +356,64 @@ async def test_shutdown_removes_socket(tmp_path: Path) -> None:
     assert not sock.exists()
 
 
-# --- _on_start cancels pending confirmation ---
+# --- toggle cancels pending confirmation ---
 
 
 @pytest.mark.asyncio
-async def test_on_start_cancels_pending_confirmation_task() -> None:
+async def test_on_toggle_cancels_pending_confirmation_task() -> None:
     daemon = _make_daemon()
-    # Simulate a confirmation task being active when PTT is pressed
     fake_task = MagicMock(spec=asyncio.Task)
     daemon._confirmation_task = fake_task  # type: ignore[assignment]
 
-    await daemon._on_start()
+    barrier = asyncio.Event()
+
+    async def _blocked_session() -> None:
+        await barrier.wait()
+
+    daemon._run_session = _blocked_session  # type: ignore[method-assign]
+    await daemon._on_toggle()
 
     fake_task.cancel.assert_called_once()
     assert daemon._confirmation_task is None
 
-
-# --- _on_stop routes to confirmation when pending ---
-
-
-@pytest.mark.asyncio
-async def test_on_stop_routes_to_confirmation_when_pending() -> None:
-    daemon = _make_daemon()
-    daemon._recorder.stop.return_value = np.zeros(1, dtype=np.float32)
-    daemon._transcriber.transcribe.return_value = "yes"
-
-    tool_call = ToolCallRequest(id="c9", name="shell", args={"command": "ls"})
-    daemon._pending_tool = tool_call
-    daemon._pending_turn_id = 1
-
-    fake_tool = MagicMock()
-    fake_tool.run.return_value = ToolResult(output="file list")
-
-    await daemon._on_start()
-    with (
-        patch("rex.daemon.main.tts.speak", new_callable=AsyncMock),
-        patch("rex.daemon.main._notify", new_callable=AsyncMock),
-        patch.dict("rex.daemon.main.REGISTRY", {"shell": fake_tool}),
-    ):
-        await daemon._on_stop()
-
-    fake_tool.run.assert_called_once()
+    barrier.set()
+    if daemon._session_task:
+        await daemon._session_task
 
 
-# --- dispatch: start/stop commands ---
+# --- dispatch: start/stop/toggle commands ---
 
 
 @pytest.mark.asyncio
-async def test_dispatch_start_calls_on_start() -> None:
+async def test_dispatch_start_calls_on_toggle() -> None:
     daemon = _make_daemon()
-    with patch.object(daemon, "_on_start", new_callable=AsyncMock) as mock_start:
+    with patch.object(daemon, "_on_toggle", new_callable=AsyncMock) as mock_toggle:
         await daemon._dispatch("start")
-    mock_start.assert_called_once()
+    mock_toggle.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_dispatch_stop_calls_on_stop() -> None:
+async def test_dispatch_toggle_calls_on_toggle() -> None:
     daemon = _make_daemon()
-    with patch.object(daemon, "_on_stop", new_callable=AsyncMock) as mock_stop:
-        await daemon._dispatch("stop")
-    mock_stop.assert_called_once()
+    with patch.object(daemon, "_on_toggle", new_callable=AsyncMock) as mock_toggle:
+        await daemon._dispatch("toggle")
+    mock_toggle.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stop_calls_request_stop() -> None:
+    daemon = _make_daemon()
+    fake_session = MagicMock()
+    daemon._session = fake_session
+    await daemon._dispatch("stop")
+    fake_session.request_stop.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dispatch_stop_no_session_is_noop() -> None:
+    daemon = _make_daemon()
+    daemon._session = None
+    await daemon._dispatch("stop")  # must not raise
 
 
 # --- _handle_client ---
@@ -360,36 +424,12 @@ async def test_handle_client_reads_and_dispatches() -> None:
     daemon = _make_daemon()
     reader = MagicMock(spec=asyncio.StreamReader)
     writer = MagicMock(spec=asyncio.StreamWriter)
-    reader.readline = AsyncMock(return_value=b"start\n")
+    reader.readline = AsyncMock(return_value=b"toggle\n")
     writer.close = MagicMock()
     writer.wait_closed = AsyncMock()
 
-    with patch.object(daemon, "_on_start", new_callable=AsyncMock) as mock_start:
+    with patch.object(daemon, "_on_toggle", new_callable=AsyncMock) as mock_toggle:
         await daemon._handle_client(reader, writer)
 
-    mock_start.assert_called_once()
+    mock_toggle.assert_called_once()
     writer.close.assert_called_once()
-
-
-# --- _recording_timeout ---
-
-
-@pytest.mark.asyncio
-async def test_recording_timeout_forces_stop() -> None:
-    daemon = _make_daemon()
-    daemon._recording = True
-    daemon._recorder.stop.return_value = np.zeros(1, dtype=np.float32)
-    daemon._transcriber.transcribe.return_value = "timeout transcript"
-
-    async def _fake_stream(*_a, **_kw):
-        yield "Response."
-
-    with (
-        patch("rex.daemon.main.asyncio.sleep", new_callable=AsyncMock),
-        patch("rex.daemon.pipeline.llm.respond_streaming_msgs", side_effect=_fake_stream),
-        patch("rex.daemon.pipeline.tts.speak", new_callable=AsyncMock),
-        patch("rex.daemon.main._notify", new_callable=AsyncMock),
-    ):
-        await daemon._recording_timeout()
-
-    assert daemon._recording is False
